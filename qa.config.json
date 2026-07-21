@@ -1,0 +1,9 @@
+{
+  "baseUrl": "https://www.nate.com/",
+  "viewport": { "width": 1440, "height": 900, "deviceScaleFactor": 2 },
+  "diffThreshold": 0.1,
+  "failThresholdPercent": 0.5,
+  "screens": [
+    { "name": "home", "designImage": "designs/home.png", "path": "/" }
+  ]
+}
