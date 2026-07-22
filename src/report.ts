@@ -2,6 +2,7 @@ import { cpSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CompareResult } from "./compare.js";
+import type { AccessibilityResult } from "./accessibility.js";
 
 export interface ScreenReportEntry {
   name: string;
@@ -10,6 +11,7 @@ export interface ScreenReportEntry {
   diffRelPath: string;
   result: CompareResult;
   pass: boolean;
+  accessibility: AccessibilityResult | null;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

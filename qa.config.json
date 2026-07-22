@@ -1,9 +1,22 @@
 {
-  "baseUrl": "https://www.nate.com/",
+  "baseUrl": "https://ijkim314.github.io/",
   "viewport": { "width": 1440, "height": 900, "deviceScaleFactor": 2 },
   "diffThreshold": 0.1,
   "failThresholdPercent": 0.5,
+  "accessibility": {
+    "enabled": true,
+    "wcagTags": ["wcag2a", "wcag2aa"],
+    "excludeRules": [],
+    "failSeverities": ["critical", "serious"]
+  },
   "screens": [
-    { "name": "home", "designImage": "designs/home.png", "path": "/" }
+    {
+      "name": "home",
+      "designImage": "designs/hanabank.png",
+      "path": "/blog/html/degin-to-web/hanabank/index.html",
+      "viewport": { "width": 393, "height": 852, "deviceScaleFactor": 1 },
+      "fullPage": true,
+      "accessibility": true
+    }
   ]
 }

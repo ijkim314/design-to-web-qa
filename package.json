@@ -1,5 +1,5 @@
 {
-  "name": "figma-to-web-qa",
+  "name": "design-to-web-qa",
   "version": "0.1.0",
   "description": "디자인과 퍼블리싱 화면 차이 QA 자동화",
   "private": true,
@@ -10,6 +10,8 @@
     "postinstall": "playwright install chromium && vite build"
   },
   "dependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "axe-core": "^4.10.0",
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
     "@mui/material": "^6.1.0",

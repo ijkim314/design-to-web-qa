@@ -7,11 +7,35 @@ export interface Viewport {
   deviceScaleFactor: number;
 }
 
+export type AxeSeverity = "critical" | "serious" | "moderate" | "minor";
+
+export interface AccessibilityGlobalConfig {
+  enabled?: boolean;
+  wcagTags?: string[];
+  excludeRules?: string[];
+  failSeverities?: AxeSeverity[];
+}
+
+export type ScreenAccessibilityConfig =
+  | boolean
+  | { enabled?: boolean; excludeRules?: string[] };
+
+export interface AccessibilityScanOptions {
+  wcagTags: string[];
+  excludeRules: string[];
+  failSeverities: AxeSeverity[];
+}
+
+const DEFAULT_WCAG_TAGS = ["wcag2a", "wcag2aa"];
+const DEFAULT_FAIL_SEVERITIES: AxeSeverity[] = ["critical", "serious"];
+
 export interface ScreenConfig {
   name: string;
   designImage: string;
   path: string;
   viewport?: Viewport;
+  fullPage?: boolean;
+  accessibility?: ScreenAccessibilityConfig;
 }
 
 export interface QaConfig {
@@ -20,6 +44,7 @@ export interface QaConfig {
   diffThreshold: number;
   failThresholdPercent: number;
   screens: ScreenConfig[];
+  accessibility?: AccessibilityGlobalConfig;
 }
 
 export function loadConfig(configPath: string): QaConfig {
@@ -42,4 +67,27 @@ export function loadConfig(configPath: string): QaConfig {
 
 export function resolveViewport(config: QaConfig, screen: ScreenConfig): Viewport {
   return screen.viewport ?? config.viewport;
+}
+
+export function resolveAccessibilityOptions(
+  config: QaConfig,
+  screen: ScreenConfig
+): AccessibilityScanOptions | null {
+  if (screen.accessibility === false) return null;
+
+  const globalConfig = config.accessibility ?? {};
+  const globalEnabled = globalConfig.enabled ?? true;
+  const screenOverride = typeof screen.accessibility === "object" ? screen.accessibility : {};
+  const enabled = screenOverride.enabled ?? (screen.accessibility === true ? true : globalEnabled);
+  if (!enabled) return null;
+
+  const excludeRules = Array.from(
+    new Set([...(globalConfig.excludeRules ?? []), ...(screenOverride.excludeRules ?? [])])
+  );
+
+  return {
+    wcagTags: globalConfig.wcagTags ?? DEFAULT_WCAG_TAGS,
+    excludeRules,
+    failSeverities: globalConfig.failSeverities ?? DEFAULT_FAIL_SEVERITIES,
+  };
 }

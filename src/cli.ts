@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { loadConfig, resolveViewport } from "./config.js";
+import { loadConfig, resolveAccessibilityOptions, resolveViewport } from "./config.js";
 import { captureScreen } from "./capture.js";
 import { compareImages } from "./compare.js";
 import { generateReport, type ScreenReportEntry } from "./report.js";
@@ -25,8 +25,16 @@ async function main() {
   for (const screen of config.screens) {
     console.log(`[capture] ${screen.name}`);
     const viewport = resolveViewport(config, screen);
+    const accessibilityOptions = resolveAccessibilityOptions(config, screen);
     const capturePath = path.join(capturesDir, `${screen.name}.png`);
-    await captureScreen(config, screen, viewport, capturePath);
+    const accessibility = await captureScreen(config, screen, viewport, capturePath, accessibilityOptions);
+
+    if (accessibility) {
+      const c = accessibility.countsBySeverity;
+      console.log(
+        `[a11y] ${screen.name}: critical ${c.critical}, serious ${c.serious}, moderate ${c.moderate}, minor ${c.minor}`
+      );
+    }
 
     const designCopyPath = path.join(designsDir, `${screen.name}.png`);
     copyFileSync(screen.designImage, designCopyPath);
@@ -46,6 +54,7 @@ async function main() {
       diffRelPath: toWebPath(path.relative(reportDir, diffPath)),
       result,
       pass,
+      accessibility,
     });
   }
 

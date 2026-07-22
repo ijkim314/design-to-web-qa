@@ -1,4 +1,4 @@
-# figma-to-web-qa
+# design-to-web-qa
 
 디자인 PNG와 실제 퍼블리싱 화면(웹 페이지)의 시각적 차이를 자동으로 비교하는 QA 도구입니다.
 
@@ -33,11 +33,12 @@ npm install
 }
 ```
 
-- `viewport`: 전역 기본 캡처 해상도/배율. 화면별로 `screens[].viewport`로 오버라이드 가능. 디자인 PNG의 실제 크기(px)와 최대한 일치시켜야 오탐이 줄어듭니다.
+- `viewport`: 전역 기본 캡처 해상도/배율. 화면별로 `screens[].viewport`로 오버라이드 가능. 디자인 PNG의 실제 크기(px)와 최대한 일치시켜야 오탐이 줄어듭니다. 모바일 디자인(예: 너비 393px)을 비교할 때는 해당 화면에 `viewport`를 반드시 오버라이드하세요 — 전역 기본값(PC 해상도)으로 캡처하면 완전히 다른 레이아웃이 비교됩니다. `deviceScaleFactor`도 디자인 PNG가 1x로 export됐는지 2x인지에 맞춰야 합니다(예: 디자인 너비가 393이면 1x이므로 `deviceScaleFactor: 1`).
 - `diffThreshold`: pixelmatch의 픽셀 단위 색상 임계값 (0~1, 낮을수록 민감).
 - `failThresholdPercent`: 전체 픽셀 대비 diff 비율(%)이 이 값을 넘으면 해당 화면을 FAIL로 판정.
 - `screens[].designImage`: `designs/` 폴더 내 PNG 경로.
 - `screens[].path`: `baseUrl` 기준 상대 경로(비교할 실제 페이지).
+- `screens[].fullPage`: 기본값 `false`(뷰포트 높이만 캡처). 디자인 PNG가 스크롤 전체 페이지를 담고 있다면(디자인 높이가 뷰포트 높이보다 큰 경우) `true`로 설정해 전체 페이지를 캡처해야 합니다.
 
 ## 실행
 

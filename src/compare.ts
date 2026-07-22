@@ -8,6 +8,9 @@ export interface DiffRegion {
   width: number;
   height: number;
   diffPixelCount: number;
+  description: string;
+  designColor: string;
+  captureColor: string;
 }
 
 export interface CompareResult {
@@ -53,7 +56,9 @@ export function compareImages(
 
   writeFileSync(diffOutputPath, PNG.sync.write(diff));
 
-  const regions = findDiffRegions(diff.data, width, height);
+  const regions = findDiffRegions(diff.data, width, height).map((region) =>
+    classifyRegion(designCropped.data, captureCropped.data, width, height, region)
+  );
 
   const totalPixels = width * height;
   return {
@@ -79,7 +84,7 @@ function cropTo(png: PNG, width: number, height: number): PNG {
  * 8방향 연결된 셀들을 하나의 영역으로 묶는다. 안티앨리어싱으로 흩어진 1~2px 잔점들이
  * 셀 단위 클러스터링을 거치며 자연스럽게 하나의 바운딩 박스로 합쳐진다.
  */
-function findDiffRegions(diffData: Uint8Array | Uint8ClampedArray, width: number, height: number): DiffRegion[] {
+function findDiffRegions(diffData: Uint8Array | Uint8ClampedArray, width: number, height: number): RawRegion[] {
   const cols = Math.ceil(width / REGION_CELL_SIZE);
   const rows = Math.ceil(height / REGION_CELL_SIZE);
   const cellDiffCount = new Int32Array(cols * rows);
@@ -96,7 +101,7 @@ function findDiffRegions(diffData: Uint8Array | Uint8ClampedArray, width: number
   }
 
   const visited = new Uint8Array(cols * rows);
-  const regions: DiffRegion[] = [];
+  const regions: RawRegion[] = [];
 
   for (let start = 0; start < cellDiffCount.length; start++) {
     if (cellDiffCount[start] === 0 || visited[start]) continue;
@@ -149,4 +154,146 @@ function findDiffRegions(diffData: Uint8Array | Uint8ClampedArray, width: number
 
   regions.sort((a, b) => b.diffPixelCount - a.diffPixelCount);
   return regions.slice(0, MAX_REGIONS);
+}
+
+interface RawRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  diffPixelCount: number;
+}
+
+const SHIFT_SEARCH_MAX = 6;
+const SHIFT_MATCH_RATIO = 0.6;
+const COLOR_DIST_THRESHOLD = 40;
+const VARIANCE_FLAT_THRESHOLD = 150;
+const SAMPLE_GRID = 48;
+const CHANNEL_DIFF_THRESHOLD = 60;
+
+/**
+ * 바운딩 박스 안의 실제 픽셀(디자인 vs 퍼블리싱)을 비교해 차이의 성격을 추정한다.
+ * 정밀한 비전 분석이 아니라 색상 평균/분산, 소폭 이동 시 diff 감소 여부를 보는 휴리스틱이다.
+ */
+function classifyRegion(
+  designData: Uint8Array | Uint8ClampedArray,
+  captureData: Uint8Array | Uint8ClampedArray,
+  imageWidth: number,
+  imageHeight: number,
+  region: RawRegion
+): DiffRegion {
+  const { x, y, width, height } = region;
+  const stride = Math.max(1, Math.round(Math.sqrt(width * height) / SAMPLE_GRID));
+
+  const baseDiff = sampledDiffCount(designData, captureData, imageWidth, imageHeight, region, 0, 0, stride);
+
+  let bestShift = { dx: 0, dy: 0, diff: baseDiff };
+  if (baseDiff > 0) {
+    for (let dy = -SHIFT_SEARCH_MAX; dy <= SHIFT_SEARCH_MAX; dy++) {
+      for (let dx = -SHIFT_SEARCH_MAX; dx <= SHIFT_SEARCH_MAX; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        if (x + dx < 0 || y + dy < 0 || x + dx + width > imageWidth || y + dy + height > imageHeight) continue;
+        const diff = sampledDiffCount(designData, captureData, imageWidth, imageHeight, region, dx, dy, stride);
+        if (diff < bestShift.diff) bestShift = { dx, dy, diff };
+      }
+    }
+  }
+
+  const designStats = regionColorStats(designData, imageWidth, x, y, width, height);
+  const captureStats = regionColorStats(captureData, imageWidth, x, y, width, height);
+  const designColor = toHex(designStats.avg);
+  const captureColor = toHex(captureStats.avg);
+  const colorDist = Math.sqrt(
+    (designStats.avg.r - captureStats.avg.r) ** 2 +
+      (designStats.avg.g - captureStats.avg.g) ** 2 +
+      (designStats.avg.b - captureStats.avg.b) ** 2
+  );
+
+  let description: string;
+  if (bestShift.diff <= baseDiff * SHIFT_MATCH_RATIO && (bestShift.dx !== 0 || bestShift.dy !== 0)) {
+    description = `위치/간격 차이로 추정 (약 ${bestShift.dx >= 0 ? "+" : ""}${bestShift.dx}px, ${bestShift.dy >= 0 ? "+" : ""}${bestShift.dy}px 이동 시 유사해짐)`;
+  } else if (designStats.variance < VARIANCE_FLAT_THRESHOLD && captureStats.variance >= VARIANCE_FLAT_THRESHOLD) {
+    description = "퍼블리싱에만 존재하는 요소로 추정 (디자인은 단색/빈 배경)";
+  } else if (captureStats.variance < VARIANCE_FLAT_THRESHOLD && designStats.variance >= VARIANCE_FLAT_THRESHOLD) {
+    description = "퍼블리싱에서 요소가 누락된 것으로 추정 (디자인에만 콘텐츠 있음)";
+  } else if (colorDist >= COLOR_DIST_THRESHOLD) {
+    description = `색상 차이로 추정 (디자인 ${designColor} vs 퍼블리싱 ${captureColor})`;
+  } else {
+    description = "콘텐츠 차이로 추정 (텍스트/이미지 내용이 다름)";
+  }
+
+  return { ...region, description, designColor, captureColor };
+}
+
+function sampledDiffCount(
+  designData: Uint8Array | Uint8ClampedArray,
+  captureData: Uint8Array | Uint8ClampedArray,
+  imageWidth: number,
+  imageHeight: number,
+  region: RawRegion,
+  dx: number,
+  dy: number,
+  stride: number
+): number {
+  const { x, y, width, height } = region;
+  let diffCount = 0;
+  for (let yy = 0; yy < height; yy += stride) {
+    const cy = y + dy + yy;
+    if (cy < 0 || cy >= imageHeight) continue;
+    for (let xx = 0; xx < width; xx += stride) {
+      const cx = x + dx + xx;
+      if (cx < 0 || cx >= imageWidth) continue;
+      const dIdx = ((y + yy) * imageWidth + (x + xx)) * 4;
+      const cIdx = (cy * imageWidth + cx) * 4;
+      const diff =
+        Math.abs(designData[dIdx] - captureData[cIdx]) +
+        Math.abs(designData[dIdx + 1] - captureData[cIdx + 1]) +
+        Math.abs(designData[dIdx + 2] - captureData[cIdx + 2]);
+      if (diff > CHANNEL_DIFF_THRESHOLD) diffCount++;
+    }
+  }
+  return diffCount;
+}
+
+function regionColorStats(
+  data: Uint8Array | Uint8ClampedArray,
+  imageWidth: number,
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): { avg: { r: number; g: number; b: number }; variance: number } {
+  let rSum = 0;
+  let gSum = 0;
+  let bSum = 0;
+  let lumSum = 0;
+  let count = 0;
+  const luminances: number[] = [];
+
+  for (let yy = y; yy < y + height; yy++) {
+    for (let xx = x; xx < x + width; xx++) {
+      const idx = (yy * imageWidth + xx) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      rSum += r;
+      gSum += g;
+      bSum += b;
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      lumSum += lum;
+      luminances.push(lum);
+      count++;
+    }
+  }
+
+  const avg = { r: rSum / count, g: gSum / count, b: bSum / count };
+  const meanLum = lumSum / count;
+  const variance = luminances.reduce((sum, l) => sum + (l - meanLum) ** 2, 0) / count;
+
+  return { avg, variance };
+}
+
+function toHex({ r, g, b }: { r: number; g: number; b: number }): string {
+  const clamp = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
+  return `#${[clamp(r), clamp(g), clamp(b)].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
 }
