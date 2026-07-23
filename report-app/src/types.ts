@@ -49,6 +49,6 @@ export interface ScreenReportEntry {
 
 declare global {
   interface Window {
-    __QA_REPORT_DATA__: ScreenReportEntry[];
+    __QA_REPORT_DATA__?: ScreenReportEntry[];
   }
 }

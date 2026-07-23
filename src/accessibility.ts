@@ -26,6 +26,33 @@ export interface AccessibilityResult {
   failed: boolean;
 }
 
+async function findOrphanLabelFor(page: Page): Promise<AccessibilityViolation | null> {
+  const orphans = await page.evaluate(() => {
+    const results: { forId: string; text: string }[] = [];
+    document.querySelectorAll("label[for]").forEach((label) => {
+      const forId = label.getAttribute("for");
+      if (forId && !document.getElementById(forId)) {
+        results.push({ forId, text: label.textContent?.trim() ?? "" });
+      }
+    });
+    return results;
+  });
+
+  if (orphans.length === 0) return null;
+
+  return {
+    id: "label-for-mismatch",
+    impact: "serious",
+    description: "label의 for 속성이 실제로 존재하는 입력 요소의 id와 일치하지 않습니다.",
+    help: "label[for]가 가리키는 id를 가진 입력 요소를 찾을 수 없습니다. label을 클릭/탭해도 해당 입력에 포커스가 가지 않고, 스크린 리더가 의도한 라벨을 읽지 못할 수 있습니다.",
+    helpUrl: "https://dequeuniversity.com/rules/axe/4.12/label",
+    nodeCount: orphans.length,
+    targets: orphans
+      .slice(0, MAX_TARGETS_PER_VIOLATION)
+      .map((o) => `label[for="${o.forId}"]${o.text ? ` (${o.text})` : ""}`),
+  };
+}
+
 export async function runAccessibilityScan(
   page: Page,
   options: AccessibilityScanOptions
@@ -47,6 +74,11 @@ export async function runAccessibilityScan(
       targets: v.nodes.slice(0, MAX_TARGETS_PER_VIOLATION).map((n) => n.target.join(" ")),
     };
   });
+
+  if (!options.excludeRules.includes("label-for-mismatch")) {
+    const orphanLabelViolation = await findOrphanLabelFor(page);
+    if (orphanLabelViolation) violations.push(orphanLabelViolation);
+  }
 
   const countsBySeverity: Record<AxeSeverity, number> = {
     critical: 0,

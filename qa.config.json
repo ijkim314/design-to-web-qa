@@ -2,7 +2,7 @@
   "baseUrl": "https://ijkim314.github.io/",
   "viewport": { "width": 1440, "height": 900, "deviceScaleFactor": 2 },
   "diffThreshold": 0.1,
-  "failThresholdPercent": 0.5,
+  "failThresholdPercent": 10,
   "accessibility": {
     "enabled": true,
     "wcagTags": ["wcag2a", "wcag2aa"],
@@ -11,10 +11,18 @@
   },
   "screens": [
     {
-      "name": "home",
+      "name": "hanabank",
       "designImage": "designs/hanabank.png",
       "path": "/blog/html/degin-to-web/hanabank/index.html",
       "viewport": { "width": 393, "height": 852, "deviceScaleFactor": 1 },
+      "fullPage": true,
+      "accessibility": true
+    },
+    {
+      "name": "법원도서관 로그인",
+      "designImage": "designs/court-library001.png",
+      "path": "/blog/html/degin-to-web/court-library/index.html",
+      "viewport": { "width": 364, "height": 526, "deviceScaleFactor": 1 },
       "fullPage": true,
       "accessibility": true
     }

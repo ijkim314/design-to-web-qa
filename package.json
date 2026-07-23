@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "qa": "tsx src/cli.ts",
+    "qa:dev": "tsx src/dev.ts",
     "build:report-app": "vite build",
     "postinstall": "playwright install chromium && vite build"
   },
