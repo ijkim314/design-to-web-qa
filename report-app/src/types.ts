@@ -21,6 +21,12 @@ export interface CompareResult {
 
 export type AxeSeverity = "critical" | "serious" | "moderate" | "minor";
 
+export interface AccessibilityTarget {
+  selector: string;
+  html?: string;
+  failureSummary?: string;
+}
+
 export interface AccessibilityViolation {
   id: string;
   impact: AxeSeverity | null;
@@ -28,7 +34,7 @@ export interface AccessibilityViolation {
   help: string;
   helpUrl: string;
   nodeCount: number;
-  targets: string[];
+  targets: AccessibilityTarget[];
 }
 
 export interface AccessibilityResult {

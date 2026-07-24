@@ -5,10 +5,14 @@ import Stack from "@mui/material/Stack";
 import Box from "@mui/material/Box";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
 import CssBaseline from "@mui/material/CssBaseline";
+import Visibility from "@mui/icons-material/Visibility";
+import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { CompareView } from "./CompareView";
 import { AccessibilityView } from "./AccessibilityView";
@@ -49,6 +53,7 @@ export function App() {
   const [selected, setSelected] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(true);
 
   useEffect(() => {
     if (!isLiveMode) return;
@@ -208,6 +213,9 @@ export function App() {
               <Chip size="small" color="success" label={`PASS ${passCount}`} />
               <Chip size="small" color="error" label={`FAIL ${failCount}`} />
             </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+              diff 10% 미만이면 PASS
+            </Typography>
             {error && (
               <Alert severity="error" sx={{ mt: 1 }}>
                 {error}
@@ -293,11 +301,25 @@ export function App() {
               label={entry.pass ? "PASS" : "FAIL"}
             />
           </Stack>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            diff {entry.result.diffPercentage.toFixed(3)}% ({entry.result.diffPixelCount}/{entry.result.totalPixels}px)
-            {entry.result.dimensionMismatch ? " — 크기 불일치" : ""}
-          </Typography>
-          <CompareView entry={entry} />
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              diff {entry.result.diffPercentage.toFixed(3)}% ({entry.result.diffPixelCount}/{entry.result.totalPixels}px)
+              {entry.result.dimensionMismatch ? " — 크기 불일치" : ""}
+            </Typography>
+            <Tooltip title={showDiff ? "차이 영역 숨기기" : "차이 영역 표시"}>
+              <span style={{ marginLeft: 10 }}>
+                <IconButton
+                  size="small"
+                  color={showDiff ? "primary" : "default"}
+                  onClick={() => setShowDiff((prev) => !prev)}
+                  disabled={entry.result.regions.length === 0}
+                >
+                  {showDiff ? <Visibility fontSize="small" /> : <VisibilityOff fontSize="small" />}
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
+          <CompareView entry={entry} showDiff={showDiff} />
 
           <Typography variant="h6" sx={{ mt: 4, mb: 1 }}>
             접근성

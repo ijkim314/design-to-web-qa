@@ -8,6 +8,7 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Link from "@mui/material/Link";
+import Tooltip from "@mui/material/Tooltip";
 import type { AccessibilityResult, AccessibilityViolation, AxeSeverity } from "./types";
 
 const SEVERITY_LABEL: Record<AxeSeverity, string> = {
@@ -94,9 +95,38 @@ function ViolationRow({ violation }: { violation: AccessibilityViolation }) {
           {violation.nodeCount}개 요소
         </Typography>
         {violation.targets.map((t, i) => (
-          <Typography key={i} variant="caption" component="div" sx={{ fontFamily: "monospace" }}>
-            {t}
-          </Typography>
+          <Tooltip
+            key={i}
+            arrow
+            placement="right"
+            disableHoverListener={!t.failureSummary}
+            title={t.failureSummary ? <Box sx={{ whiteSpace: "pre-line" }}>{t.failureSummary}</Box> : ""}
+          >
+            <Box
+              sx={{
+                mt: 1,
+                pl: 1,
+                borderLeft: "2px solid",
+                borderColor: "divider",
+                cursor: t.failureSummary ? "help" : "default",
+                width: "fit-content",
+              }}
+            >
+              <Typography variant="caption" component="div" sx={{ fontFamily: "monospace" }}>
+                {t.selector}
+              </Typography>
+              {t.html && (
+                <Typography
+                  variant="caption"
+                  component="div"
+                  color="text.secondary"
+                  sx={{ fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-all" }}
+                >
+                  {t.html}
+                </Typography>
+              )}
+            </Box>
+          </Tooltip>
         ))}
       </TableCell>
     </TableRow>
