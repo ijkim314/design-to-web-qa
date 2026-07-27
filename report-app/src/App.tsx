@@ -18,6 +18,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { CompareView } from "./CompareView";
 import { AccessibilityView } from "./AccessibilityView";
+import { AdhocRunDialog } from "./AdhocRunDialog";
 import type { ScreenReportEntry } from "./types";
 
 const theme = createTheme({
@@ -57,6 +58,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(true);
   const [refreshingName, setRefreshingName] = useState<string | null>(null);
+  const [adhocOpen, setAdhocOpen] = useState(false);
 
   useEffect(() => {
     if (!isLiveMode) return;
@@ -100,6 +102,21 @@ export function App() {
     }
   }
 
+  function handleAdhocSuccess(newEntries: ScreenReportEntry[]) {
+    setEntries(newEntries);
+    setSelected(0);
+  }
+
+  const adhocDialog = isLiveMode && (
+    <AdhocRunDialog open={adhocOpen} onClose={() => setAdhocOpen(false)} onSuccess={handleAdhocSuccess} />
+  );
+
+  const adhocButton = isLiveMode && (
+    <Button size="small" variant="outlined" disabled={loading} onClick={() => setAdhocOpen(true)}>
+      직접입력 QA 실행
+    </Button>
+  );
+
   const refreshButton = isLiveMode && (
     <Button
       size="small"
@@ -108,7 +125,7 @@ export function App() {
       onClick={() => void runQa()}
       startIcon={loading ? <CircularProgress size={14} color="inherit" /> : undefined}
     >
-      {loading ? "실행 중..." : entries.length === 0 ? "QA 실행" : "새로고침"}
+      {loading ? "실행 중..." : "로컬 QA 실행"}
     </Button>
   );
 
@@ -172,18 +189,29 @@ export function App() {
 
             {isLiveMode ? (
               <>
-                <Button
-                  size="large"
-                  variant="contained"
-                  disabled={loading}
-                  onClick={() => void runQa()}
-                  startIcon={loading ? <CircularProgress size={16} color="inherit" /> : undefined}
-                  sx={{ px: 5, py: 1.25, fontWeight: 700 }}
-                >
-                  {loading ? "실행 중..." : "QA 실행"}
-                </Button>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="center">
+                  <Button
+                    size="large"
+                    variant="contained"
+                    disabled={loading}
+                    onClick={() => void runQa()}
+                    startIcon={loading ? <CircularProgress size={16} color="inherit" /> : undefined}
+                    sx={{ px: 5, py: 1.25, fontWeight: 700 }}
+                  >
+                    {loading ? "실행 중..." : "로컬 QA 실행"}
+                  </Button>
+                  <Button
+                    size="large"
+                    variant="outlined"
+                    disabled={loading}
+                    onClick={() => setAdhocOpen(true)}
+                    sx={{ px: 5, py: 1.25, fontWeight: 700 }}
+                  >
+                    직접입력 QA 실행
+                  </Button>
+                </Stack>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
-                  qa.config.json에 정의된 화면 기준으로 캡처와 비교를 실행합니다.
+                  qa.config.json에 정의된 화면 기준으로 실행하거나, baseUrl·이미지·경로를 직접 입력해서 한 화면만 실행할 수 있습니다.
                 </Typography>
               </>
             ) : (
@@ -197,6 +225,7 @@ export function App() {
             )}
           </Box>
         </Box>
+        {adhocDialog}
       </ThemeProvider>
     );
   }
@@ -221,10 +250,11 @@ export function App() {
           }}
         >
           <Box sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
-              <Typography variant="subtitle1" fontWeight={700}>
-                디자인 vs 퍼블리싱 QA
-              </Typography>
+            <Typography variant="subtitle1" fontWeight={700}>
+              디자인 vs 퍼블리싱 QA
+            </Typography>
+            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+              {adhocButton}
               {refreshButton}
             </Stack>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
@@ -373,7 +403,7 @@ export function App() {
               </span>
             </Tooltip>
           </Stack>
-          <CompareView entry={entry} showDiff={showDiff} />
+          <CompareView key={entry.name} entry={entry} showDiff={showDiff} />
 
           <Typography variant="h6" sx={{ mt: 4, mb: 1 }}>
             접근성
@@ -381,6 +411,7 @@ export function App() {
           <AccessibilityView accessibility={entry.accessibility} />
         </Box>
       </Box>
+      {adhocDialog}
     </ThemeProvider>
   );
 }

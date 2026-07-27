@@ -1,10 +1,125 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { IncomingMessage } from "node:http";
 import { createServer, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { runQaPipeline, runQaPipelineForScreen, type QaRunResult } from "./pipeline.js";
+import { runQaPipeline, runQaPipelineForConfig, runQaPipelineForScreen, type QaRunResult } from "./pipeline.js";
+import { loadConfig, type QaConfig, type ScreenConfig, type Viewport } from "./config.js";
 import type { ScreenReportEntry } from "./report.js";
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+interface AdhocViewportInput {
+  width?: number;
+  height?: number;
+  deviceScaleFactor?: number;
+}
+
+interface AdhocScreenInput {
+  name?: string;
+  path?: string;
+  imageBase64?: string;
+  viewport?: AdhocViewportInput;
+  fullPage?: boolean;
+  accessibility?: boolean;
+}
+
+interface AdhocRunBody {
+  baseUrl?: string;
+  screens?: AdhocScreenInput[];
+}
+
+function toViewport(input: AdhocViewportInput | undefined, index: number): Viewport | undefined {
+  if (!input) return undefined;
+  const { width, height, deviceScaleFactor } = input;
+  if (width === undefined && height === undefined) return undefined;
+  if (!(width && width > 0) || !(height && height > 0)) {
+    throw new Error(`${index + 1}번째 화면: 뷰포트 가로/세로는 0보다 큰 값을 입력해야 합니다.`);
+  }
+  if (deviceScaleFactor !== undefined && !(deviceScaleFactor > 0)) {
+    throw new Error(`${index + 1}번째 화면: 배율은 0보다 큰 값을 입력해야 합니다.`);
+  }
+  return { width, height, deviceScaleFactor: deviceScaleFactor ?? 1 };
+}
+
+function readJsonBody<T>(req: IncomingMessage): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf-8")) as T);
+      } catch {
+        reject(new Error("요청 본문을 해석할 수 없습니다."));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function uniqueScreenName(base: string, used: Set<string>): string {
+  let name = base;
+  let n = 2;
+  while (used.has(name)) {
+    name = `${base} (${n++})`;
+  }
+  used.add(name);
+  return name;
+}
+
+async function runAdhoc(configPath: string, body: AdhocRunBody): Promise<QaRunResult> {
+  if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
+  if (!body.baseUrl) throw new Error("baseUrl을 입력하세요.");
+  if (!Array.isArray(body.screens) || body.screens.length === 0) {
+    throw new Error("화면을 1개 이상 입력하세요.");
+  }
+
+  running = true;
+  const tempImagePaths: string[] = [];
+  const usedNames = new Set<string>();
+  try {
+    const screens: ScreenConfig[] = body.screens.map((screen, i) => {
+      if (!screen.path) throw new Error(`${i + 1}번째 화면의 상세 경로를 입력하세요.`);
+      if (!screen.imageBase64) throw new Error(`${i + 1}번째 화면의 디자인 이미지를 업로드하세요.`);
+
+      const base64 = screen.imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      const imageBuffer = Buffer.from(base64, "base64");
+      if (!imageBuffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
+        throw new Error(`${i + 1}번째 화면: PNG 이미지만 업로드할 수 있습니다.`);
+      }
+
+      const tempImagePath = path.join(os.tmpdir(), `qa-adhoc-${randomUUID()}.png`);
+      writeFileSync(tempImagePath, imageBuffer);
+      tempImagePaths.push(tempImagePath);
+
+      return {
+        name: uniqueScreenName(screen.name?.trim() || `직접 입력 화면 ${i + 1}`, usedNames),
+        designImage: tempImagePath,
+        path: screen.path,
+        viewport: toViewport(screen.viewport, i),
+        fullPage: screen.fullPage ?? true,
+        accessibility: screen.accessibility ?? true,
+      };
+    });
+
+    const baseConfig: QaConfig = loadConfig(configPath);
+    const adhocConfig: QaConfig = { ...baseConfig, baseUrl: body.baseUrl, screens };
+    latest = await runQaPipelineForConfig(adhocConfig);
+    return latest;
+  } finally {
+    running = false;
+    for (const p of tempImagePaths) {
+      try {
+        unlinkSync(p);
+      } catch {
+        // 이미 삭제되었거나 접근 불가한 경우는 무시
+      }
+    }
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -95,6 +210,26 @@ function apiPlugin(configPath: string): Plugin {
             return;
           }
           runPipeline(configPath)
+            .then((result) => {
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ entries: toApiEntries(result.entries) }));
+            })
+            .catch((err: unknown) => {
+              res.statusCode = 500;
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+            });
+          return;
+        }
+
+        if (pathname === "/api/run-adhoc") {
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.end("POST만 지원합니다.");
+            return;
+          }
+          readJsonBody<AdhocRunBody>(req)
+            .then((body) => runAdhoc(configPath, body))
             .then((result) => {
               res.setHeader("Content-Type", "application/json");
               res.end(JSON.stringify({ entries: toApiEntries(result.entries) }));

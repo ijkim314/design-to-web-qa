@@ -68,9 +68,7 @@ async function runScreen(
   };
 }
 
-export async function runQaPipeline(configPath: string): Promise<QaRunResult> {
-  const config = loadConfig(configPath);
-
+export async function runQaPipelineForConfig(config: QaConfig): Promise<QaRunResult> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const reportDir = path.resolve("reports", timestamp);
   const dirs = reportDirs(reportDir);
@@ -81,6 +79,11 @@ export async function runQaPipeline(configPath: string): Promise<QaRunResult> {
   }
 
   return { reportDir, entries, anyFail: entries.some((e) => !e.pass) };
+}
+
+export async function runQaPipeline(configPath: string): Promise<QaRunResult> {
+  const config = loadConfig(configPath);
+  return runQaPipelineForConfig(config);
 }
 
 export async function runQaPipelineForScreen(
