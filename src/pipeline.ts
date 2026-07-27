@@ -50,7 +50,7 @@ async function runScreen(
   copyFileSync(screen.designImage, designCopyPath);
 
   const diffPath = path.join(dirs.diffsDir, `${screen.name}.png`);
-  const result = compareImages(designCopyPath, capturePath, diffPath, config.diffThreshold);
+  const result = await compareImages(designCopyPath, capturePath, diffPath, config.diffThreshold);
   const pass = result.diffPercentage <= config.failThresholdPercent;
 
   console.log(

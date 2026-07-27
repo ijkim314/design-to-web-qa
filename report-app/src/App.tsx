@@ -254,8 +254,8 @@ export function App() {
               디자인 vs 퍼블리싱 QA
             </Typography>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              {adhocButton}
               {refreshButton}
+              {adhocButton}
             </Stack>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
               <Chip size="small" label={`총 ${entries.length}`} />

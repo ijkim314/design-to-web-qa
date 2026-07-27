@@ -187,18 +187,18 @@ function RegionTable({ regions }: { regions: DiffRegion[] }) {
     <Table size="small" sx={{ mt: 2, maxWidth: 820 }}>
       <TableHead>
         <TableRow>
-          <TableCell>#</TableCell>
-          <TableCell>위치 (x, y)</TableCell>
-          <TableCell>크기 (w×h)</TableCell>
-          <TableCell align="right">
+          <TableCell sx={{ whiteSpace: "nowrap" }}>#</TableCell>
+          <TableCell sx={{ whiteSpace: "nowrap" }}>위치 (x, y)</TableCell>
+          <TableCell sx={{ whiteSpace: "nowrap" }}>크기 (w×h)</TableCell>
+          <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
             <Tooltip title="이 영역(크기 w×h) 안에서 디자인과 퍼블리싱이 실제로 다르다고 판정된 픽셀 개수입니다. 크기 대비 값이 클수록 그 영역 대부분이 달라진 것입니다.">
               <Box component="span" sx={{ cursor: "help", borderBottom: "1px dashed", borderColor: "text.secondary" }}>
                 diff 픽셀 수
               </Box>
             </Tooltip>
           </TableCell>
-          <TableCell>색상</TableCell>
-          <TableCell>설명</TableCell>
+          <TableCell sx={{ whiteSpace: "nowrap" }}>색상</TableCell>
+          <TableCell sx={{ whiteSpace: "nowrap" }}>설명</TableCell>
         </TableRow>
       </TableHead>
       <TableBody>

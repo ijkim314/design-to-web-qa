@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
+import { recognizeRegionText } from "./ocr.js";
 
 export interface DiffRegion {
   x: number;
@@ -27,12 +28,12 @@ const REGION_CELL_SIZE = 16;
 const MIN_REGION_PIXELS = 30;
 const MAX_REGIONS = 30;
 
-export function compareImages(
+export async function compareImages(
   designPath: string,
   capturePath: string,
   diffOutputPath: string,
   diffThreshold: number
-): CompareResult {
+): Promise<CompareResult> {
   const designPng = PNG.sync.read(readFileSync(designPath));
   const capturePng = PNG.sync.read(readFileSync(capturePath));
 
@@ -56,9 +57,10 @@ export function compareImages(
 
   writeFileSync(diffOutputPath, PNG.sync.write(diff));
 
-  const regions = findDiffRegions(diff.data, width, height).map((region) =>
+  const classified = findDiffRegions(diff.data, width, height).map((region) =>
     classifyRegion(designCropped.data, captureCropped.data, width, height, region)
   );
+  const regions = await refineWithOcr(classified, designCropped, captureCropped);
 
   const totalPixels = width * height;
   return {
@@ -171,6 +173,15 @@ const VARIANCE_FLAT_THRESHOLD = 150;
 const SAMPLE_GRID = 48;
 const CHANNEL_DIFF_THRESHOLD = 60;
 
+const OCR_CONFIDENCE_THRESHOLD = 75;
+const MAX_OCR_REGION_DIMENSION = 300;
+
+type RegionKind = "shift" | "extra" | "missing" | "color" | "content";
+
+interface ClassifiedRegion extends DiffRegion {
+  kind: RegionKind;
+}
+
 /**
  * 바운딩 박스 안의 실제 픽셀(디자인 vs 퍼블리싱)을 비교해 차이의 성격을 추정한다.
  * 정밀한 비전 분석이 아니라 색상 평균/분산, 소폭 이동 시 diff 감소 여부를 보는 휴리스틱이다.
@@ -181,7 +192,7 @@ function classifyRegion(
   imageWidth: number,
   imageHeight: number,
   region: RawRegion
-): DiffRegion {
+): ClassifiedRegion {
   const { x, y, width, height } = region;
   const stride = Math.max(1, Math.round(Math.sqrt(width * height) / SAMPLE_GRID));
 
@@ -210,19 +221,68 @@ function classifyRegion(
   );
 
   let description: string;
+  let kind: RegionKind;
   if (bestShift.diff <= baseDiff * SHIFT_MATCH_RATIO && (bestShift.dx !== 0 || bestShift.dy !== 0)) {
     description = `위치/간격 차이로 추정 (약 ${bestShift.dx >= 0 ? "+" : ""}${bestShift.dx}px, ${bestShift.dy >= 0 ? "+" : ""}${bestShift.dy}px 이동 시 유사해짐)`;
+    kind = "shift";
   } else if (designStats.variance < VARIANCE_FLAT_THRESHOLD && captureStats.variance >= VARIANCE_FLAT_THRESHOLD) {
     description = "퍼블리싱에만 존재하는 요소로 추정 (디자인은 단색/빈 배경)";
+    kind = "extra";
   } else if (captureStats.variance < VARIANCE_FLAT_THRESHOLD && designStats.variance >= VARIANCE_FLAT_THRESHOLD) {
     description = "퍼블리싱에서 요소가 누락된 것으로 추정 (디자인에만 콘텐츠 있음)";
+    kind = "missing";
   } else if (colorDist >= COLOR_DIST_THRESHOLD) {
     description = `색상 차이로 추정 (디자인 ${designColor} vs 퍼블리싱 ${captureColor})`;
+    kind = "color";
   } else {
     description = "콘텐츠 차이로 추정 (텍스트/이미지 내용이 다름)";
+    kind = "content";
   }
 
-  return { ...region, description, designColor, captureColor };
+  return { ...region, description, designColor, captureColor, kind };
+}
+
+/**
+ * "콘텐츠 차이로 추정"으로 분류된 영역만 OCR로 다시 확인한다.
+ * 디자인/퍼블리싱에서 읽은 텍스트가 같으면 폰트 렌더링 차이로 보고 리포트에서 제외하고,
+ * 다르면 실제로 인식된 텍스트를 그대로 보여준다. 텍스트를 못 읽으면(아이콘 등) 원래 설명을 둔다.
+ */
+async function refineWithOcr(
+  regions: ClassifiedRegion[],
+  designCropped: PNG,
+  captureCropped: PNG
+): Promise<DiffRegion[]> {
+  const result: DiffRegion[] = [];
+
+  for (const { kind, ...region } of regions) {
+    // 화면 대부분을 뒤덮는 영역은 로고·입력창·버튼 등 여러 요소가 하나로 뭉친 것이라
+    // OCR을 통째로 돌리면 서로 무관한 글자가 섞여 의미 없는 결과가 나온다.
+    const isTooLargeForOcr = region.width > MAX_OCR_REGION_DIMENSION || region.height > MAX_OCR_REGION_DIMENSION;
+    if (kind !== "content" || isTooLargeForOcr) {
+      result.push(region);
+      continue;
+    }
+
+    const [design, capture] = await Promise.all([
+      recognizeRegionText(designCropped, region.x, region.y, region.width, region.height),
+      recognizeRegionText(captureCropped, region.x, region.y, region.width, region.height),
+    ]);
+
+    // 아이콘/이미지는 텍스트가 아닌데도 OCR이 억지로 글자를 인식하는 경우가 있어,
+    // 확신도가 낮으면 결과를 믿지 않고 원래 설명(기존 휴리스틱)을 유지한다.
+    const reliable = design.confidence >= OCR_CONFIDENCE_THRESHOLD && capture.confidence >= OCR_CONFIDENCE_THRESHOLD;
+    if (!reliable || !design.text || !capture.text) {
+      result.push(region);
+      continue;
+    }
+
+    if (design.text === capture.text) {
+      continue; // 텍스트는 동일 — 렌더링 차이로 보고 리포트에서 제외
+    }
+    result.push({ ...region, description: `텍스트 차이 감지: "${design.text}" → "${capture.text}"` });
+  }
+
+  return result;
 }
 
 function sampledDiffCount(
