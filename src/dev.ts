@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { runQaPipeline, type QaRunResult } from "./pipeline.js";
+import { runQaPipeline, runQaPipelineForScreen, type QaRunResult } from "./pipeline.js";
 import type { ScreenReportEntry } from "./report.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,13 +24,35 @@ async function runPipeline(configPath: string): Promise<QaRunResult> {
   }
 }
 
-function toApiEntries(entries: ScreenReportEntry[]) {
-  return entries.map((e) => ({
-    ...e,
-    designRelPath: ASSET_PREFIX + e.designRelPath,
-    captureRelPath: ASSET_PREFIX + e.captureRelPath,
-    diffRelPath: ASSET_PREFIX + e.diffRelPath,
-  }));
+async function refreshScreen(configPath: string, screenName: string): Promise<ScreenReportEntry> {
+  if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
+  if (!latest) throw new Error("먼저 전체 QA를 한 번 실행하세요.");
+  running = true;
+  try {
+    const entry = await runQaPipelineForScreen(configPath, latest.reportDir, screenName);
+    const idx = latest.entries.findIndex((e) => e.name === screenName);
+    if (idx === -1) throw new Error(`항목을 찾을 수 없습니다: ${screenName}`);
+    latest.entries[idx] = entry;
+    latest.anyFail = latest.entries.some((e) => !e.pass);
+    return entry;
+  } finally {
+    running = false;
+  }
+}
+
+// 캡처/디자인/diff 이미지는 새로고침 후에도 파일 경로가 동일하므로, 브라우저가
+// 이전 이미지를 캐시해서 보여주지 않도록 버전 쿼리스트링을 붙여준다.
+function toApiEntries(entries: ScreenReportEntry[], version = Date.now()) {
+  return entries.map((e) => toApiEntry(e, version));
+}
+
+function toApiEntry(entry: ScreenReportEntry, version = Date.now()) {
+  return {
+    ...entry,
+    designRelPath: `${ASSET_PREFIX}${entry.designRelPath}?v=${version}`,
+    captureRelPath: `${ASSET_PREFIX}${entry.captureRelPath}?v=${version}`,
+    diffRelPath: `${ASSET_PREFIX}${entry.diffRelPath}?v=${version}`,
+  };
 }
 
 function apiPlugin(configPath: string): Plugin {
@@ -38,15 +60,16 @@ function apiPlugin(configPath: string): Plugin {
     name: "qa-dev-api",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const url = req.url ?? "";
+        const parsedUrl = new URL(req.url ?? "", "http://localhost");
+        const pathname = parsedUrl.pathname;
 
-        if (url.startsWith(ASSET_PREFIX)) {
+        if (pathname.startsWith(ASSET_PREFIX)) {
           if (!latest) {
             res.statusCode = 404;
             res.end("아직 실행된 QA 리포트가 없습니다.");
             return;
           }
-          const rel = decodeURIComponent(url.slice(ASSET_PREFIX.length));
+          const rel = decodeURIComponent(pathname.slice(ASSET_PREFIX.length));
           const filePath = path.resolve(latest.reportDir, rel);
           if (!filePath.startsWith(latest.reportDir) || !existsSync(filePath)) {
             res.statusCode = 404;
@@ -54,17 +77,18 @@ function apiPlugin(configPath: string): Plugin {
             return;
           }
           res.setHeader("Content-Type", "image/png");
+          res.setHeader("Cache-Control", "no-store");
           res.end(readFileSync(filePath));
           return;
         }
 
-        if (url === "/api/latest") {
+        if (pathname === "/api/latest") {
           res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify({ entries: latest ? toApiEntries(latest.entries) : [] }));
           return;
         }
 
-        if (url === "/api/run") {
+        if (pathname === "/api/run") {
           if (req.method !== "POST") {
             res.statusCode = 405;
             res.end("POST만 지원합니다.");
@@ -74,6 +98,32 @@ function apiPlugin(configPath: string): Plugin {
             .then((result) => {
               res.setHeader("Content-Type", "application/json");
               res.end(JSON.stringify({ entries: toApiEntries(result.entries) }));
+            })
+            .catch((err: unknown) => {
+              res.statusCode = 500;
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+            });
+          return;
+        }
+
+        if (pathname === "/api/refresh") {
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.end("POST만 지원합니다.");
+            return;
+          }
+          const name = parsedUrl.searchParams.get("name");
+          if (!name) {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: "name 파라미터가 필요합니다." }));
+            return;
+          }
+          refreshScreen(configPath, name)
+            .then((entry) => {
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ entry: toApiEntry(entry) }));
             })
             .catch((err: unknown) => {
               res.statusCode = 500;

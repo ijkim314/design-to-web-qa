@@ -4,6 +4,7 @@ import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
 import Box from "@mui/material/Box";
 import List from "@mui/material/List";
+import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -13,6 +14,7 @@ import Alert from "@mui/material/Alert";
 import CssBaseline from "@mui/material/CssBaseline";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { CompareView } from "./CompareView";
 import { AccessibilityView } from "./AccessibilityView";
@@ -54,6 +56,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(true);
+  const [refreshingName, setRefreshingName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLiveMode) return;
@@ -78,6 +81,22 @@ export function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshEntry(name: string) {
+    setRefreshingName(name);
+    setError(null);
+    try {
+      const res = await fetch(`/api/refresh?name=${encodeURIComponent(name)}`, { method: "POST" });
+      const data = (await res.json()) as { entry?: ScreenReportEntry; error?: string };
+      if (!res.ok || !data.entry) throw new Error(data.error ?? "새로고침에 실패했습니다.");
+      const updated = data.entry;
+      setEntries((prev) => prev.map((e) => (e.name === name ? updated : e)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshingName(null);
     }
   }
 
@@ -224,70 +243,105 @@ export function App() {
           </Box>
           <List sx={{ overflowY: "auto", flex: 1, p: 1 }}>
             {entries.map((e, i) => (
-              <ListItemButton
+              <ListItem
                 key={e.name}
-                selected={i === selected}
-                onClick={() => setSelected(i)}
-                sx={{
-                  borderRadius: 1,
-                  mb: 0.5,
-                  alignItems: "flex-start",
-                  "&.Mui-selected": {
-                    bgcolor: "primary.main",
-                    color: "primary.contrastText",
-                    "&:hover": { bgcolor: "primary.dark" },
-                  },
-                }}
+                disablePadding
+                sx={{ mb: 0.5 }}
+                secondaryAction={
+                  isLiveMode && (
+                    <Tooltip title="이 화면만 새로고침">
+                      <span>
+                        <IconButton
+                          edge="end"
+                          size="small"
+                          disabled={refreshingName === e.name || loading}
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            void refreshEntry(e.name);
+                          }}
+                          sx={{
+                            color: i === selected ? "primary.contrastText" : "text.secondary",
+                            "&.Mui-disabled": {
+                              color: i === selected ? "primary.contrastText" : undefined,
+                              opacity: i === selected ? 0.6 : undefined,
+                            },
+                          }}
+                        >
+                          {refreshingName === e.name ? (
+                            <CircularProgress size={14} color="inherit" />
+                          ) : (
+                            <RefreshIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  )
+                }
               >
-                <Box
-                  component="img"
-                  src={e.designRelPath}
+                <ListItemButton
+                  selected={i === selected}
+                  onClick={() => setSelected(i)}
                   sx={{
-                    width: 56,
-                    height: 36,
-                    objectFit: "cover",
-                    objectPosition: "top",
-                    borderRadius: 0.5,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    mr: 1.5,
-                    flexShrink: 0,
-                    bgcolor: "background.paper",
+                    borderRadius: 1,
+                    alignItems: "flex-start",
+                    pr: isLiveMode ? 5 : undefined,
+                    "&.Mui-selected": {
+                      bgcolor: "primary.main",
+                      color: "primary.contrastText",
+                      "&:hover": { bgcolor: "primary.dark" },
+                    },
                   }}
-                />
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography variant="body2" fontWeight={600} noWrap>
-                    {e.name}
-                  </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{ opacity: i === selected ? 0.85 : undefined }}
-                    color={i === selected ? "inherit" : "text.secondary"}
-                  >
-                    diff {e.result.diffPercentage.toFixed(2)}%
-                  </Typography>
-                </Box>
-                {e.accessibility?.failed && (
-                  <Chip
-                    size="small"
-                    color="warning"
-                    label={a11yFailCount(e.accessibility)}
-                    sx={{ height: 18, minWidth: 18, fontSize: 11, mt: 0.5, ml: 1 }}
-                    title="접근성 위반(critical+serious) 개수"
+                >
+                  <Box
+                    component="img"
+                    src={e.designRelPath}
+                    sx={{
+                      width: 56,
+                      height: 36,
+                      objectFit: "cover",
+                      objectPosition: "top",
+                      borderRadius: 0.5,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      mr: 1.5,
+                      flexShrink: 0,
+                      bgcolor: "background.paper",
+                    }}
                   />
-                )}
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    bgcolor: e.pass ? "success.main" : "error.main",
-                    mt: 0.75,
-                    ml: 1,
-                    flexShrink: 0,
-                  }}
-                />
-              </ListItemButton>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" fontWeight={600} noWrap>
+                      {e.name}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{ opacity: i === selected ? 0.85 : undefined }}
+                      color={i === selected ? "inherit" : "text.secondary"}
+                    >
+                      diff {e.result.diffPercentage.toFixed(2)}%
+                    </Typography>
+                  </Box>
+                  {e.accessibility?.failed && (
+                    <Chip
+                      size="small"
+                      color="warning"
+                      label={a11yFailCount(e.accessibility)}
+                      sx={{ height: 18, minWidth: 18, fontSize: 11, mt: 0.5, ml: 1 }}
+                      title="접근성 위반(critical+serious) 개수"
+                    />
+                  )}
+                  <Box
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      bgcolor: e.pass ? "success.main" : "error.main",
+                      mt: 0.75,
+                      ml: 1,
+                      flexShrink: 0,
+                    }}
+                  />
+                </ListItemButton>
+              </ListItem>
             ))}
           </List>
         </Box>
