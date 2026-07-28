@@ -43,6 +43,13 @@ export interface AccessibilityResult {
   failed: boolean;
 }
 
+export interface ScreenInputConfig {
+  path: string;
+  viewport?: { width: number; height: number; deviceScaleFactor: number };
+  fullPage: boolean;
+  accessibility: boolean;
+}
+
 export interface ScreenReportEntry {
   name: string;
   designRelPath: string;
@@ -51,6 +58,7 @@ export interface ScreenReportEntry {
   result: CompareResult;
   pass: boolean;
   accessibility: AccessibilityResult | null;
+  input?: ScreenInputConfig;
 }
 
 declare global {

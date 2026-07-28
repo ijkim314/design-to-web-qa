@@ -15,12 +15,15 @@ import CssBaseline from "@mui/material/CssBaseline";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import EditIcon from "@mui/icons-material/Edit";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { CompareView } from "./CompareView";
 import { AccessibilityView } from "./AccessibilityView";
 import { AdhocRunDialog } from "./AdhocRunDialog";
+import { EditScreenDialog } from "./EditScreenDialog";
 import { ApiSettingsDialog } from "./ApiSettingsDialog";
 import { apiFetch, loadApiSettings, withApiBase, type ApiSettings } from "./apiConfig";
 import type { ScreenReportEntry } from "./types";
@@ -39,6 +42,7 @@ const hasBakedData = typeof window !== "undefined" && window.__QA_REPORT_DATA__ 
 
 type ViewMode = "landing" | "report";
 const VIEW_MODE_KEY = "qa-view-mode-v1";
+type EntriesSource = "config" | "adhoc";
 
 // 새로고침/재접속 후에도 사용자가 마지막으로 보던 화면(랜딩 vs 리포트)을 유지한다.
 function loadViewMode(defaultMode: ViewMode): ViewMode {
@@ -83,7 +87,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(true);
   const [refreshingName, setRefreshingName] = useState<string | null>(null);
+  const [entriesSource, setEntriesSource] = useState<EntriesSource>("config");
   const [adhocOpen, setAdhocOpen] = useState(false);
+  const [editEntry, setEditEntry] = useState<ScreenReportEntry | null>(null);
   const [apiSettings, setApiSettings] = useState<ApiSettings>(() => loadApiSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(() =>
@@ -106,7 +112,10 @@ export function App() {
     if (!isLiveMode) return;
     apiFetch("/api/latest")
       .then((res) => res.json())
-      .then((data: { entries: ScreenReportEntry[] }) => setEntries(withApiBase(data.entries)))
+      .then((data: { entries: ScreenReportEntry[]; source?: EntriesSource }) => {
+        setEntries(withApiBase(data.entries));
+        setEntriesSource(data.source ?? "config");
+      })
       .catch(() => {
         // 초기 로드 실패는 조용히 무시하고 "실행" 버튼으로 유도한다.
       });
@@ -130,18 +139,35 @@ export function App() {
 
   function handleAdhocSuccess(newEntries: ScreenReportEntry[]) {
     setEntries(newEntries);
+    setEntriesSource("adhoc");
     setSelected(0);
     goToReport();
+  }
+
+  function handleEditSuccess(updated: ScreenReportEntry) {
+    setEntries((prev) => prev.map((e) => (e.name === updated.name ? updated : e)));
+    setEditEntry(null);
   }
 
   const adhocDialog = isLiveMode && (
     <AdhocRunDialog open={adhocOpen} onClose={() => setAdhocOpen(false)} onSuccess={handleAdhocSuccess} />
   );
 
+  const editDialog = isLiveMode && (
+    <EditScreenDialog
+      open={Boolean(editEntry)}
+      entry={editEntry}
+      onClose={() => setEditEntry(null)}
+      onSuccess={handleEditSuccess}
+    />
+  );
+
   const adhocButton = isLiveMode && (
-    <Button size="small" variant="outlined" disabled={loading} onClick={() => setAdhocOpen(true)}>
-      직접입력 QA 실행
-    </Button>
+    <Tooltip title="직접입력 QA 실행">
+      <IconButton size="small" disabled={loading} onClick={() => setAdhocOpen(true)}>
+        <AddCircleOutlineIcon fontSize="small" />
+      </IconButton>
+    </Tooltip>
   );
 
   const settingsButton = (
@@ -290,6 +316,7 @@ export function App() {
                 디자인 vs 퍼블리싱 QA
               </Typography>
               <Stack direction="row">
+                {adhocButton}
                 <Tooltip title="실행 전 처음 화면으로">
                   <IconButton size="small" onClick={goToLanding}>
                     <ArrowBackIcon fontSize="small" />
@@ -297,9 +324,6 @@ export function App() {
                 </Tooltip>
                 {settingsButton}
               </Stack>
-            </Stack>
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              {adhocButton}
             </Stack>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
               <Chip size="small" label={`총 ${entries.length}`} />
@@ -323,32 +347,58 @@ export function App() {
                 sx={{ mb: 0.5 }}
                 secondaryAction={
                   isLiveMode && (
-                    <Tooltip title="이 화면만 새로고침">
-                      <span>
-                        <IconButton
-                          edge="end"
-                          size="small"
-                          disabled={refreshingName === e.name || loading}
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            void refreshEntry(e.name);
-                          }}
-                          sx={{
-                            color: i === selected ? "primary.contrastText" : "text.secondary",
-                            "&.Mui-disabled": {
-                              color: i === selected ? "primary.contrastText" : undefined,
-                              opacity: i === selected ? 0.6 : undefined,
-                            },
-                          }}
-                        >
-                          {refreshingName === e.name ? (
-                            <CircularProgress size={14} color="inherit" />
-                          ) : (
-                            <RefreshIcon fontSize="small" />
-                          )}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
+                    <Stack direction="row" spacing={0.5}>
+                      {entriesSource === "adhoc" && (
+                        <Tooltip title="입력 값 수정 후 재실행">
+                          <span>
+                            <IconButton
+                              edge="end"
+                              size="small"
+                              disabled={refreshingName === e.name || loading}
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                setEditEntry(e);
+                              }}
+                              sx={{
+                                color: i === selected ? "primary.contrastText" : "text.secondary",
+                                "&.Mui-disabled": {
+                                  color: i === selected ? "primary.contrastText" : undefined,
+                                  opacity: i === selected ? 0.6 : undefined,
+                                },
+                              }}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
+                      <Tooltip title="이 화면만 새로고침">
+                        <span>
+                          <IconButton
+                            edge="end"
+                            size="small"
+                            disabled={refreshingName === e.name || loading}
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              void refreshEntry(e.name);
+                            }}
+                            sx={{
+                              color: i === selected ? "primary.contrastText" : "text.secondary",
+                              "&.Mui-disabled": {
+                                color: i === selected ? "primary.contrastText" : undefined,
+                                opacity: i === selected ? 0.6 : undefined,
+                              },
+                            }}
+                          >
+                            {refreshingName === e.name ? (
+                              <CircularProgress size={14} color="inherit" />
+                            ) : (
+                              <RefreshIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Stack>
                   )
                 }
               >
@@ -358,7 +408,7 @@ export function App() {
                   sx={{
                     borderRadius: 1,
                     alignItems: "flex-start",
-                    pr: isLiveMode ? 5 : undefined,
+                    pr: isLiveMode ? (entriesSource === "adhoc" ? 9 : 5) : undefined,
                     "&.Mui-selected": {
                       bgcolor: "primary.main",
                       color: "primary.contrastText",
@@ -366,54 +416,63 @@ export function App() {
                     },
                   }}
                 >
-                  <Box
-                    component="img"
-                    src={e.designRelPath}
-                    sx={{
-                      width: 56,
-                      height: 36,
-                      objectFit: "cover",
-                      objectPosition: "top",
-                      borderRadius: 0.5,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      mr: 1.5,
-                      flexShrink: 0,
-                      bgcolor: "background.paper",
-                    }}
-                  />
+                  <Box sx={{ position: "relative", mr: 1.5, flexShrink: 0 }}>
+                    <Box
+                      component="img"
+                      src={e.designRelPath}
+                      sx={{
+                        width: 56,
+                        height: 36,
+                        display: "block",
+                        objectFit: "cover",
+                        objectPosition: "top",
+                        borderRadius: 0.5,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        bgcolor: "background.paper",
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: -3,
+                        left: -3,
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        bgcolor: e.pass ? "success.main" : "error.main",
+                        border: "1.5px solid",
+                        borderColor: "background.paper",
+                      }}
+                    />
+                  </Box>
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography variant="body2" fontWeight={600} noWrap>
                       {e.name}
                     </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{ opacity: i === selected ? 0.85 : undefined }}
-                      color={i === selected ? "inherit" : "text.secondary"}
-                    >
-                      diff {e.result.diffPercentage.toFixed(2)}%
-                    </Typography>
+                    <Stack direction="row" alignItems="center" spacing={0.75}>
+                      <Typography
+                        variant="caption"
+                        sx={{ opacity: i === selected ? 0.85 : undefined }}
+                        color={i === selected ? "inherit" : "text.secondary"}
+                      >
+                        diff {e.result.diffPercentage.toFixed(2)}%
+                      </Typography>
+                      {e.accessibility?.failed && (
+                        <Tooltip title="접근성 위반(critical+serious) 개수">
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            fontWeight={700}
+                            color={i === selected ? "inherit" : "warning.main"}
+                            sx={{ opacity: i === selected ? 0.85 : undefined }}
+                          >
+                            ({a11yFailCount(e.accessibility)})
+                          </Typography>
+                        </Tooltip>
+                      )}
+                    </Stack>
                   </Box>
-                  {e.accessibility?.failed && (
-                    <Chip
-                      size="small"
-                      color="warning"
-                      label={a11yFailCount(e.accessibility)}
-                      sx={{ height: 18, minWidth: 18, fontSize: 11, mt: 0.5, ml: 1 }}
-                      title="접근성 위반(critical+serious) 개수"
-                    />
-                  )}
-                  <Box
-                    sx={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: "50%",
-                      bgcolor: e.pass ? "success.main" : "error.main",
-                      mt: 0.75,
-                      ml: 1,
-                      flexShrink: 0,
-                    }}
-                  />
                 </ListItemButton>
               </ListItem>
             ))}
@@ -456,6 +515,7 @@ export function App() {
         </Box>
       </Box>
       {adhocDialog}
+      {editDialog}
       {settingsDialog}
     </ThemeProvider>
   );

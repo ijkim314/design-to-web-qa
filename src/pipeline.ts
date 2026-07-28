@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { loadConfig, resolveAccessibilityOptions, resolveViewport, type QaConfig, type ScreenConfig } from "./config.js";
 import { captureScreen } from "./capture.js";
@@ -87,16 +87,20 @@ export async function runQaPipeline(configPath: string): Promise<QaRunResult> {
 }
 
 export async function runQaPipelineForScreen(
-  configPath: string,
+  config: QaConfig,
   reportDir: string,
   screenName: string
 ): Promise<ScreenReportEntry> {
-  const config = loadConfig(configPath);
   const screen = config.screens.find((s) => s.name === screenName);
-  if (!screen) throw new Error(`qa.config.json에서 화면을 찾을 수 없습니다: ${screenName}`);
+  if (!screen) throw new Error(`화면을 찾을 수 없습니다: ${screenName}`);
 
   const dirs = reportDirs(reportDir);
-  return runScreen(config, screen, reportDir, dirs);
+  // 직접입력 실행의 디자인 이미지는 임시 파일이라 실행 후 삭제된다.
+  // 대신 최초 실행 때 리포트 폴더에 복사해둔 사본을 재사용한다.
+  const designImage = existsSync(screen.designImage)
+    ? screen.designImage
+    : path.join(dirs.designsDir, `${screen.name}.png`);
+  return runScreen(config, { ...screen, designImage }, reportDir, dirs);
 }
 
 function toWebPath(p: string): string {

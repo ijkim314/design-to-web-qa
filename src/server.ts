@@ -15,7 +15,7 @@ if (!TOKEN) {
 }
 
 const qaHandler = createQaRequestHandler(configPath);
-const MUTATING_PATHS = new Set(["/api/run", "/api/run-adhoc", "/api/refresh"]);
+const MUTATING_PATHS = new Set(["/api/run", "/api/run-adhoc", "/api/refresh", "/api/update-screen"]);
 
 function serveStaticIndex(res: http.ServerResponse) {
   const indexPath = path.join(REPORT_APP_DIST, "index.html");

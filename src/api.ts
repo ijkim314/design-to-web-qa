@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { runQaPipeline, runQaPipelineForConfig, runQaPipelineForScreen, type QaRunResult } from "./pipeline.js";
+import { runQaPipelineForConfig, runQaPipelineForScreen, type QaRunResult } from "./pipeline.js";
 import { loadConfig, type QaConfig, type ScreenConfig, type Viewport } from "./config.js";
 import type { ScreenReportEntry } from "./report.js";
 
@@ -30,15 +30,15 @@ interface AdhocRunBody {
   screens?: AdhocScreenInput[];
 }
 
-function toViewport(input: AdhocViewportInput | undefined, index: number): Viewport | undefined {
+function toViewport(input: AdhocViewportInput | undefined, label: string): Viewport | undefined {
   if (!input) return undefined;
   const { width, height, deviceScaleFactor } = input;
   if (width === undefined && height === undefined) return undefined;
   if (!(width && width > 0) || !(height && height > 0)) {
-    throw new Error(`${index + 1}번째 화면: 뷰포트 가로/세로는 0보다 큰 값을 입력해야 합니다.`);
+    throw new Error(`${label}: 뷰포트 가로/세로는 0보다 큰 값을 입력해야 합니다.`);
   }
   if (deviceScaleFactor !== undefined && !(deviceScaleFactor > 0)) {
-    throw new Error(`${index + 1}번째 화면: 배율은 0보다 큰 값을 입력해야 합니다.`);
+    throw new Error(`${label}: 배율은 0보다 큰 값을 입력해야 합니다.`);
   }
   return { width, height, deviceScaleFactor: deviceScaleFactor ?? 1 };
 }
@@ -69,6 +69,8 @@ function uniqueScreenName(base: string, used: Set<string>): string {
 }
 
 let latest: QaRunResult | null = null;
+let latestConfig: QaConfig | null = null;
+let latestIsAdhoc = false;
 let running = false;
 
 async function runAdhoc(configPath: string, body: AdhocRunBody): Promise<QaRunResult> {
@@ -100,7 +102,7 @@ async function runAdhoc(configPath: string, body: AdhocRunBody): Promise<QaRunRe
         name: uniqueScreenName(screen.name?.trim() || `직접 입력 화면 ${i + 1}`, usedNames),
         designImage: tempImagePath,
         path: screen.path,
-        viewport: toViewport(screen.viewport, i),
+        viewport: toViewport(screen.viewport, `${i + 1}번째 화면`),
         fullPage: screen.fullPage ?? true,
         accessibility: screen.accessibility ?? true,
       };
@@ -109,6 +111,8 @@ async function runAdhoc(configPath: string, body: AdhocRunBody): Promise<QaRunRe
     const baseConfig: QaConfig = loadConfig(configPath);
     const adhocConfig: QaConfig = { ...baseConfig, baseUrl: body.baseUrl, screens };
     latest = await runQaPipelineForConfig(adhocConfig);
+    latestConfig = adhocConfig;
+    latestIsAdhoc = true;
     return latest;
   } finally {
     running = false;
@@ -126,19 +130,22 @@ async function runPipeline(configPath: string): Promise<QaRunResult> {
   if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
   running = true;
   try {
-    latest = await runQaPipeline(configPath);
+    const config = loadConfig(configPath);
+    latest = await runQaPipelineForConfig(config);
+    latestConfig = config;
+    latestIsAdhoc = false;
     return latest;
   } finally {
     running = false;
   }
 }
 
-async function refreshScreen(configPath: string, screenName: string): Promise<ScreenReportEntry> {
+async function refreshScreen(screenName: string): Promise<ScreenReportEntry> {
   if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
-  if (!latest) throw new Error("먼저 전체 QA를 한 번 실행하세요.");
+  if (!latest || !latestConfig) throw new Error("먼저 QA를 한 번 실행하세요.");
   running = true;
   try {
-    const entry = await runQaPipelineForScreen(configPath, latest.reportDir, screenName);
+    const entry = await runQaPipelineForScreen(latestConfig, latest.reportDir, screenName);
     const idx = latest.entries.findIndex((e) => e.name === screenName);
     if (idx === -1) throw new Error(`항목을 찾을 수 없습니다: ${screenName}`);
     latest.entries[idx] = entry;
@@ -149,6 +156,58 @@ async function refreshScreen(configPath: string, screenName: string): Promise<Sc
   }
 }
 
+async function updateScreen(screenName: string, input: AdhocScreenInput): Promise<ScreenReportEntry> {
+  if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
+  if (!latest || !latestConfig || !latestIsAdhoc) {
+    throw new Error("직접입력으로 실행한 화면만 값을 수정할 수 있습니다.");
+  }
+  const idx = latestConfig.screens.findIndex((s) => s.name === screenName);
+  if (idx === -1) throw new Error(`항목을 찾을 수 없습니다: ${screenName}`);
+  if (!input.path) throw new Error("상세 경로를 입력하세요.");
+
+  running = true;
+  let tempImagePath: string | null = null;
+  try {
+    const existing = latestConfig.screens[idx];
+    let designImage = existing.designImage;
+    if (input.imageBase64) {
+      const base64 = input.imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      const imageBuffer = Buffer.from(base64, "base64");
+      if (!imageBuffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
+        throw new Error("PNG 이미지만 업로드할 수 있습니다.");
+      }
+      tempImagePath = path.join(os.tmpdir(), `qa-adhoc-${randomUUID()}.png`);
+      writeFileSync(tempImagePath, imageBuffer);
+      designImage = tempImagePath;
+    }
+
+    latestConfig.screens[idx] = {
+      name: screenName,
+      designImage,
+      path: input.path,
+      viewport: toViewport(input.viewport, screenName),
+      fullPage: input.fullPage ?? existing.fullPage ?? true,
+      accessibility: input.accessibility ?? existing.accessibility ?? true,
+    };
+
+    const entry = await runQaPipelineForScreen(latestConfig, latest.reportDir, screenName);
+    const entryIdx = latest.entries.findIndex((e) => e.name === screenName);
+    if (entryIdx === -1) throw new Error(`항목을 찾을 수 없습니다: ${screenName}`);
+    latest.entries[entryIdx] = entry;
+    latest.anyFail = latest.entries.some((e) => !e.pass);
+    return entry;
+  } finally {
+    running = false;
+    if (tempImagePath) {
+      try {
+        unlinkSync(tempImagePath);
+      } catch {
+        // 이미 삭제되었거나 접근 불가한 경우는 무시
+      }
+    }
+  }
+}
+
 // 캡처/디자인/diff 이미지는 새로고침 후에도 파일 경로가 동일하므로, 브라우저가
 // 이전 이미지를 캐시해서 보여주지 않도록 버전 쿼리스트링을 붙여준다.
 function toApiEntries(entries: ScreenReportEntry[], version = Date.now()) {
@@ -156,11 +215,20 @@ function toApiEntries(entries: ScreenReportEntry[], version = Date.now()) {
 }
 
 function toApiEntry(entry: ScreenReportEntry, version = Date.now()) {
+  const screen = latestConfig?.screens.find((s) => s.name === entry.name);
   return {
     ...entry,
     designRelPath: `${ASSET_PREFIX}${entry.designRelPath}?v=${version}`,
     captureRelPath: `${ASSET_PREFIX}${entry.captureRelPath}?v=${version}`,
     diffRelPath: `${ASSET_PREFIX}${entry.diffRelPath}?v=${version}`,
+    input: screen
+      ? {
+          path: screen.path,
+          viewport: screen.viewport,
+          fullPage: screen.fullPage ?? true,
+          accessibility: typeof screen.accessibility === "boolean" ? screen.accessibility : true,
+        }
+      : undefined,
   };
 }
 
@@ -192,7 +260,12 @@ export function createQaRequestHandler(
 
     if (pathname === "/api/latest") {
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ entries: latest ? toApiEntries(latest.entries) : [] }));
+      res.end(
+        JSON.stringify({
+          entries: latest ? toApiEntries(latest.entries) : [],
+          source: latestIsAdhoc ? "adhoc" : "config",
+        })
+      );
       return;
     }
 
@@ -205,7 +278,7 @@ export function createQaRequestHandler(
       runPipeline(configPath)
         .then((result) => {
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ entries: toApiEntries(result.entries) }));
+          res.end(JSON.stringify({ entries: toApiEntries(result.entries), source: "config" }));
         })
         .catch((err: unknown) => {
           res.statusCode = 500;
@@ -225,7 +298,7 @@ export function createQaRequestHandler(
         .then((body) => runAdhoc(configPath, body))
         .then((result) => {
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ entries: toApiEntries(result.entries) }));
+          res.end(JSON.stringify({ entries: toApiEntries(result.entries), source: "adhoc" }));
         })
         .catch((err: unknown) => {
           res.statusCode = 500;
@@ -248,7 +321,34 @@ export function createQaRequestHandler(
         res.end(JSON.stringify({ error: "name 파라미터가 필요합니다." }));
         return;
       }
-      refreshScreen(configPath, name)
+      refreshScreen(name)
+        .then((entry) => {
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ entry: toApiEntry(entry) }));
+        })
+        .catch((err: unknown) => {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+        });
+      return;
+    }
+
+    if (pathname === "/api/update-screen") {
+      if (req.method !== "POST") {
+        res.statusCode = 405;
+        res.end("POST만 지원합니다.");
+        return;
+      }
+      const name = parsedUrl.searchParams.get("name");
+      if (!name) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "name 파라미터가 필요합니다." }));
+        return;
+      }
+      readJsonBody<AdhocScreenInput>(req)
+        .then((body) => updateScreen(name, body))
         .then((entry) => {
           res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify({ entry: toApiEntry(entry) }));
