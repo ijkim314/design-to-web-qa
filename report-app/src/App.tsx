@@ -37,7 +37,7 @@ const theme = createTheme({
 });
 
 // 정적 리포트(HTML 단일 파일)는 window.__QA_REPORT_DATA__로 데이터가 주입되어 있다.
-// 라이브 모드는 그게 없거나(로컬 qa:dev), 정적 리포트에서 원격 백엔드(apiBase)를 설정한 경우다.
+// 라이브 모드는 그게 없거나(로컬 qa:dev), 정적 리포트에서 토큰을 설정한 경우다.
 const hasBakedData = typeof window !== "undefined" && window.__QA_REPORT_DATA__ !== undefined;
 
 type ViewMode = "landing" | "report";
@@ -96,7 +96,7 @@ export function App() {
     loadViewMode(window.__QA_REPORT_DATA__?.length ? "report" : "landing")
   );
 
-  const isLiveMode = !hasBakedData || Boolean(apiSettings.apiBase);
+  const isLiveMode = !hasBakedData || Boolean(apiSettings.token);
 
   function goToLanding() {
     setViewMode("landing");
@@ -119,7 +119,7 @@ export function App() {
       .catch(() => {
         // 초기 로드 실패는 조용히 무시하고 "실행" 버튼으로 유도한다.
       });
-  }, [isLiveMode, apiSettings.apiBase]);
+  }, [isLiveMode, apiSettings.token]);
 
   async function refreshEntry(name: string) {
     setRefreshingName(name);

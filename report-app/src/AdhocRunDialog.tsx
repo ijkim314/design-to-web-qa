@@ -19,6 +19,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import type { ScreenReportEntry } from "./types";
 import { apiFetch, withApiBase } from "./apiConfig";
+import { readImagePixelSize } from "./imageUtils";
 
 interface AdhocRunDialogProps {
   open: boolean;
@@ -208,8 +209,15 @@ export function AdhocRunDialog({ open, onClose, onSuccess }: AdhocRunDialogProps
 
   function setRowFile(id: string, file: File | null) {
     updateRow(id, { file });
-    if (file) void saveImageFile(id, file);
-    else void deleteImageFile(id);
+    if (file) {
+      void saveImageFile(id, file);
+      // 업로드한 디자인 이미지의 실제 픽셀 크기를 뷰포트 가로/세로에 자동으로 채워준다.
+      void readImagePixelSize(file)
+        .then(({ width, height }) => updateRow(id, { width: String(width), height: String(height) }))
+        .catch(() => {});
+    } else {
+      void deleteImageFile(id);
+    }
   }
 
   function addRow() {

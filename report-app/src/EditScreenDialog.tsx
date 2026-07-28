@@ -15,6 +15,7 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import type { ScreenReportEntry } from "./types";
 import { apiFetch, withApiBase } from "./apiConfig";
+import { readImagePixelSize } from "./imageUtils";
 
 interface EditScreenDialogProps {
   open: boolean;
@@ -196,7 +197,18 @@ export function EditScreenDialog({ open, entry, onClose, onSuccess }: EditScreen
               type="file"
               accept="image/png"
               hidden
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const nextFile = e.target.files?.[0] ?? null;
+                setFile(nextFile);
+                if (nextFile) {
+                  void readImagePixelSize(nextFile)
+                    .then(({ width, height }) => {
+                      setWidth(String(width));
+                      setHeight(String(height));
+                    })
+                    .catch(() => {});
+                }
+              }}
             />
             <Button
               variant="outlined"

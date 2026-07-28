@@ -7,7 +7,7 @@ import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import { saveApiSettings, type ApiSettings } from "./apiConfig";
+import { DEFAULT_API_BASE, saveApiSettings, type ApiSettings } from "./apiConfig";
 
 interface ApiSettingsDialogProps {
   open: boolean;
@@ -17,18 +17,16 @@ interface ApiSettingsDialogProps {
 }
 
 export function ApiSettingsDialog({ open, settings, onClose, onSave }: ApiSettingsDialogProps) {
-  const [apiBase, setApiBase] = useState(settings.apiBase);
   const [token, setToken] = useState(settings.token);
 
   useEffect(() => {
     if (open) {
-      setApiBase(settings.apiBase);
       setToken(settings.token);
     }
   }, [open, settings]);
 
   function handleSave() {
-    const next: ApiSettings = { apiBase, token };
+    const next: ApiSettings = { apiBase: DEFAULT_API_BASE, token };
     saveApiSettings(next);
     onSave(next);
   }
@@ -39,16 +37,11 @@ export function ApiSettingsDialog({ open, settings, onClose, onSave }: ApiSettin
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            정적 리포트에서 "QA 실행" 버튼을 동작시키려면, 실제 캡처를 수행할 백엔드 서버 주소와 토큰을 입력하세요.
+            정적 리포트에서 "QA 실행" 버튼을 동작시키려면, 토큰을 입력하세요.
           </Typography>
-          <TextField
-            label="백엔드 URL"
-            placeholder="https://design-to-web-qa-backend.onrender.com"
-            value={apiBase}
-            onChange={(e) => setApiBase(e.target.value)}
-            fullWidth
-            size="small"
-          />
+          <Typography variant="caption" color="text.secondary">
+            백엔드: {DEFAULT_API_BASE}
+          </Typography>
           <TextField
             label="토큰"
             value={token}
