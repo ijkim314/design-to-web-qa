@@ -34,7 +34,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-QA-Token");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-QA-Token, X-QA-Session");
     res.setHeader("Access-Control-Max-Age", "86400");
     res.statusCode = 204;
     res.end();

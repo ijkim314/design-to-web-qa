@@ -9,6 +9,8 @@ import type { ScreenReportEntry } from "./report.js";
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 export const ASSET_PREFIX = "/report-assets/";
+const SESSION_HEADER = "x-qa-session";
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 
 interface AdhocViewportInput {
   width?: number;
@@ -68,19 +70,47 @@ function uniqueScreenName(base: string, used: Set<string>): string {
   return name;
 }
 
-let latest: QaRunResult | null = null;
-let latestConfig: QaConfig | null = null;
-let latestIsAdhoc = false;
-let running = false;
+// 사용자(브라우저 세션)별로 실행 결과를 분리해서, 여러 명이 동시에 접속해도
+// 서로의 리포트/실행 상태를 덮어쓰지 않도록 한다.
+interface SessionState {
+  id: string;
+  latest: QaRunResult | null;
+  latestConfig: QaConfig | null;
+  latestIsAdhoc: boolean;
+  running: boolean;
+  lastAccess: number;
+}
 
-async function runAdhoc(configPath: string, body: AdhocRunBody): Promise<QaRunResult> {
-  if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
+const sessions = new Map<string, SessionState>();
+
+function cleanupStaleSessions(): void {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (!session.running && now - session.lastAccess > SESSION_TTL_MS) {
+      sessions.delete(id);
+    }
+  }
+}
+
+function getSession(sessionId: string): SessionState {
+  let session = sessions.get(sessionId);
+  if (!session) {
+    session = { id: sessionId, latest: null, latestConfig: null, latestIsAdhoc: false, running: false, lastAccess: 0 };
+    sessions.set(sessionId, session);
+  }
+  session.lastAccess = Date.now();
+  cleanupStaleSessions();
+  return session;
+}
+
+async function runAdhoc(session: SessionState, configPath: string, body: AdhocRunBody): Promise<QaRunResult> {
+  if (session.running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
   if (!body.baseUrl) throw new Error("baseUrl을 입력하세요.");
   if (!Array.isArray(body.screens) || body.screens.length === 0) {
     throw new Error("화면을 1개 이상 입력하세요.");
   }
 
-  running = true;
+  session.running = true;
   const tempImagePaths: string[] = [];
   const usedNames = new Set<string>();
   try {
@@ -110,12 +140,12 @@ async function runAdhoc(configPath: string, body: AdhocRunBody): Promise<QaRunRe
 
     const baseConfig: QaConfig = loadConfig(configPath);
     const adhocConfig: QaConfig = { ...baseConfig, baseUrl: body.baseUrl, screens };
-    latest = await runQaPipelineForConfig(adhocConfig);
-    latestConfig = adhocConfig;
-    latestIsAdhoc = true;
-    return latest;
+    session.latest = await runQaPipelineForConfig(adhocConfig);
+    session.latestConfig = adhocConfig;
+    session.latestIsAdhoc = true;
+    return session.latest;
   } finally {
-    running = false;
+    session.running = false;
     for (const p of tempImagePaths) {
       try {
         unlinkSync(p);
@@ -126,49 +156,53 @@ async function runAdhoc(configPath: string, body: AdhocRunBody): Promise<QaRunRe
   }
 }
 
-async function runPipeline(configPath: string): Promise<QaRunResult> {
-  if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
-  running = true;
+async function runPipeline(session: SessionState, configPath: string): Promise<QaRunResult> {
+  if (session.running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
+  session.running = true;
   try {
     const config = loadConfig(configPath);
-    latest = await runQaPipelineForConfig(config);
-    latestConfig = config;
-    latestIsAdhoc = false;
-    return latest;
+    session.latest = await runQaPipelineForConfig(config);
+    session.latestConfig = config;
+    session.latestIsAdhoc = false;
+    return session.latest;
   } finally {
-    running = false;
+    session.running = false;
   }
 }
 
-async function refreshScreen(screenName: string): Promise<ScreenReportEntry> {
-  if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
-  if (!latest || !latestConfig) throw new Error("먼저 QA를 한 번 실행하세요.");
-  running = true;
+async function refreshScreen(session: SessionState, screenName: string): Promise<ScreenReportEntry> {
+  if (session.running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
+  if (!session.latest || !session.latestConfig) throw new Error("먼저 QA를 한 번 실행하세요.");
+  session.running = true;
   try {
-    const entry = await runQaPipelineForScreen(latestConfig, latest.reportDir, screenName);
-    const idx = latest.entries.findIndex((e) => e.name === screenName);
+    const entry = await runQaPipelineForScreen(session.latestConfig, session.latest.reportDir, screenName);
+    const idx = session.latest.entries.findIndex((e) => e.name === screenName);
     if (idx === -1) throw new Error(`항목을 찾을 수 없습니다: ${screenName}`);
-    latest.entries[idx] = entry;
-    latest.anyFail = latest.entries.some((e) => !e.pass);
+    session.latest.entries[idx] = entry;
+    session.latest.anyFail = session.latest.entries.some((e) => !e.pass);
     return entry;
   } finally {
-    running = false;
+    session.running = false;
   }
 }
 
-async function updateScreen(screenName: string, input: AdhocScreenInput): Promise<ScreenReportEntry> {
-  if (running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
-  if (!latest || !latestConfig || !latestIsAdhoc) {
+async function updateScreen(
+  session: SessionState,
+  screenName: string,
+  input: AdhocScreenInput
+): Promise<ScreenReportEntry> {
+  if (session.running) throw new Error("이미 QA를 실행하는 중입니다. 완료 후 다시 시도하세요.");
+  if (!session.latest || !session.latestConfig || !session.latestIsAdhoc) {
     throw new Error("직접입력으로 실행한 화면만 값을 수정할 수 있습니다.");
   }
-  const idx = latestConfig.screens.findIndex((s) => s.name === screenName);
+  const idx = session.latestConfig.screens.findIndex((s) => s.name === screenName);
   if (idx === -1) throw new Error(`항목을 찾을 수 없습니다: ${screenName}`);
   if (!input.path) throw new Error("상세 경로를 입력하세요.");
 
-  running = true;
+  session.running = true;
   let tempImagePath: string | null = null;
   try {
-    const existing = latestConfig.screens[idx];
+    const existing = session.latestConfig.screens[idx];
     let designImage = existing.designImage;
     if (input.imageBase64) {
       const base64 = input.imageBase64.replace(/^data:image\/\w+;base64,/, "");
@@ -181,7 +215,7 @@ async function updateScreen(screenName: string, input: AdhocScreenInput): Promis
       designImage = tempImagePath;
     }
 
-    latestConfig.screens[idx] = {
+    session.latestConfig.screens[idx] = {
       name: screenName,
       designImage,
       path: input.path,
@@ -190,14 +224,14 @@ async function updateScreen(screenName: string, input: AdhocScreenInput): Promis
       accessibility: input.accessibility ?? existing.accessibility ?? true,
     };
 
-    const entry = await runQaPipelineForScreen(latestConfig, latest.reportDir, screenName);
-    const entryIdx = latest.entries.findIndex((e) => e.name === screenName);
+    const entry = await runQaPipelineForScreen(session.latestConfig, session.latest.reportDir, screenName);
+    const entryIdx = session.latest.entries.findIndex((e) => e.name === screenName);
     if (entryIdx === -1) throw new Error(`항목을 찾을 수 없습니다: ${screenName}`);
-    latest.entries[entryIdx] = entry;
-    latest.anyFail = latest.entries.some((e) => !e.pass);
+    session.latest.entries[entryIdx] = entry;
+    session.latest.anyFail = session.latest.entries.some((e) => !e.pass);
     return entry;
   } finally {
-    running = false;
+    session.running = false;
     if (tempImagePath) {
       try {
         unlinkSync(tempImagePath);
@@ -210,17 +244,18 @@ async function updateScreen(screenName: string, input: AdhocScreenInput): Promis
 
 // 캡처/디자인/diff 이미지는 새로고침 후에도 파일 경로가 동일하므로, 브라우저가
 // 이전 이미지를 캐시해서 보여주지 않도록 버전 쿼리스트링을 붙여준다.
-function toApiEntries(entries: ScreenReportEntry[], version = Date.now()) {
-  return entries.map((e) => toApiEntry(e, version));
+function toApiEntries(session: SessionState, entries: ScreenReportEntry[], version = Date.now()) {
+  return entries.map((e) => toApiEntry(session, e, version));
 }
 
-function toApiEntry(entry: ScreenReportEntry, version = Date.now()) {
-  const screen = latestConfig?.screens.find((s) => s.name === entry.name);
+function toApiEntry(session: SessionState, entry: ScreenReportEntry, version = Date.now()) {
+  const screen = session.latestConfig?.screens.find((s) => s.name === entry.name);
+  const assetPrefix = `${ASSET_PREFIX}${session.id}/`;
   return {
     ...entry,
-    designRelPath: `${ASSET_PREFIX}${entry.designRelPath}?v=${version}`,
-    captureRelPath: `${ASSET_PREFIX}${entry.captureRelPath}?v=${version}`,
-    diffRelPath: `${ASSET_PREFIX}${entry.diffRelPath}?v=${version}`,
+    designRelPath: `${assetPrefix}${entry.designRelPath}?v=${version}`,
+    captureRelPath: `${assetPrefix}${entry.captureRelPath}?v=${version}`,
+    diffRelPath: `${assetPrefix}${entry.diffRelPath}?v=${version}`,
     input: screen
       ? {
           path: screen.path,
@@ -239,15 +274,21 @@ export function createQaRequestHandler(
     const parsedUrl = new URL(req.url ?? "", "http://localhost");
     const pathname = parsedUrl.pathname;
 
+    // 정적 자산 경로는 <img src>로 요청되어 커스텀 헤더를 보낼 수 없으므로,
+    // 세션 식별자를 경로 자체(/report-assets/{sessionId}/...)에 담아 전달한다.
     if (pathname.startsWith(ASSET_PREFIX)) {
-      if (!latest) {
+      const rest = pathname.slice(ASSET_PREFIX.length);
+      const slashIdx = rest.indexOf("/");
+      const sessionId = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+      const rel = slashIdx === -1 ? "" : decodeURIComponent(rest.slice(slashIdx + 1));
+      const session = sessions.get(sessionId);
+      if (!session?.latest) {
         res.statusCode = 404;
         res.end("아직 실행된 QA 리포트가 없습니다.");
         return;
       }
-      const rel = decodeURIComponent(pathname.slice(ASSET_PREFIX.length));
-      const filePath = path.resolve(latest.reportDir, rel);
-      if (!filePath.startsWith(latest.reportDir) || !existsSync(filePath)) {
+      const filePath = path.resolve(session.latest.reportDir, rel);
+      if (!filePath.startsWith(session.latest.reportDir) || !existsSync(filePath)) {
         res.statusCode = 404;
         res.end("파일을 찾을 수 없습니다.");
         return;
@@ -258,12 +299,31 @@ export function createQaRequestHandler(
       return;
     }
 
+    if (!pathname.startsWith("/api/")) {
+      if (next) {
+        next();
+        return;
+      }
+      res.statusCode = 404;
+      res.end("Not Found");
+      return;
+    }
+
+    const sessionIdHeader = req.headers[SESSION_HEADER];
+    if (typeof sessionIdHeader !== "string" || !sessionIdHeader) {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "세션 식별자가 필요합니다." }));
+      return;
+    }
+    const session = getSession(sessionIdHeader);
+
     if (pathname === "/api/latest") {
       res.setHeader("Content-Type", "application/json");
       res.end(
         JSON.stringify({
-          entries: latest ? toApiEntries(latest.entries) : [],
-          source: latestIsAdhoc ? "adhoc" : "config",
+          entries: session.latest ? toApiEntries(session, session.latest.entries) : [],
+          source: session.latestIsAdhoc ? "adhoc" : "config",
         })
       );
       return;
@@ -275,10 +335,10 @@ export function createQaRequestHandler(
         res.end("POST만 지원합니다.");
         return;
       }
-      runPipeline(configPath)
+      runPipeline(session, configPath)
         .then((result) => {
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ entries: toApiEntries(result.entries), source: "config" }));
+          res.end(JSON.stringify({ entries: toApiEntries(session, result.entries), source: "config" }));
         })
         .catch((err: unknown) => {
           res.statusCode = 500;
@@ -295,10 +355,10 @@ export function createQaRequestHandler(
         return;
       }
       readJsonBody<AdhocRunBody>(req)
-        .then((body) => runAdhoc(configPath, body))
+        .then((body) => runAdhoc(session, configPath, body))
         .then((result) => {
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ entries: toApiEntries(result.entries), source: "adhoc" }));
+          res.end(JSON.stringify({ entries: toApiEntries(session, result.entries), source: "adhoc" }));
         })
         .catch((err: unknown) => {
           res.statusCode = 500;
@@ -321,10 +381,10 @@ export function createQaRequestHandler(
         res.end(JSON.stringify({ error: "name 파라미터가 필요합니다." }));
         return;
       }
-      refreshScreen(name)
+      refreshScreen(session, name)
         .then((entry) => {
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ entry: toApiEntry(entry) }));
+          res.end(JSON.stringify({ entry: toApiEntry(session, entry) }));
         })
         .catch((err: unknown) => {
           res.statusCode = 500;
@@ -348,10 +408,10 @@ export function createQaRequestHandler(
         return;
       }
       readJsonBody<AdhocScreenInput>(req)
-        .then((body) => updateScreen(name, body))
+        .then((body) => updateScreen(session, name, body))
         .then((entry) => {
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ entry: toApiEntry(entry) }));
+          res.end(JSON.stringify({ entry: toApiEntry(session, entry) }));
         })
         .catch((err: unknown) => {
           res.statusCode = 500;
@@ -361,10 +421,6 @@ export function createQaRequestHandler(
       return;
     }
 
-    if (next) {
-      next();
-      return;
-    }
     res.statusCode = 404;
     res.end("Not Found");
   };

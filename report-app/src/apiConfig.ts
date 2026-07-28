@@ -28,10 +28,28 @@ export function saveApiSettings(settings: ApiSettings): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
 }
 
+const SESSION_KEY = "qa-session-id-v1";
+
+// 탭(sessionStorage)마다 고유 ID를 부여해 여러 사용자가 동시에 접속해도
+// 백엔드에서 서로의 실행 결과를 분리해서 관리할 수 있게 한다.
+function getSessionId(): string {
+  try {
+    let id = sessionStorage.getItem(SESSION_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem(SESSION_KEY, id);
+    }
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const { apiBase, token } = loadApiSettings();
   const headers = new Headers(init?.headers);
   if (token) headers.set("X-QA-Token", token);
+  headers.set("X-QA-Session", getSessionId());
   return fetch(`${apiBase}${path}`, { ...init, headers });
 }
 
