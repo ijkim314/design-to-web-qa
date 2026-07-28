@@ -16,6 +16,7 @@ import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SettingsIcon from "@mui/icons-material/Settings";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { CompareView } from "./CompareView";
 import { AccessibilityView } from "./AccessibilityView";
@@ -35,6 +36,27 @@ const theme = createTheme({
 // 정적 리포트(HTML 단일 파일)는 window.__QA_REPORT_DATA__로 데이터가 주입되어 있다.
 // 라이브 모드는 그게 없거나(로컬 qa:dev), 정적 리포트에서 원격 백엔드(apiBase)를 설정한 경우다.
 const hasBakedData = typeof window !== "undefined" && window.__QA_REPORT_DATA__ !== undefined;
+
+type ViewMode = "landing" | "report";
+const VIEW_MODE_KEY = "qa-view-mode-v1";
+
+// 새로고침/재접속 후에도 사용자가 마지막으로 보던 화면(랜딩 vs 리포트)을 유지한다.
+function loadViewMode(defaultMode: ViewMode): ViewMode {
+  try {
+    const stored = localStorage.getItem(VIEW_MODE_KEY);
+    return stored === "landing" || stored === "report" ? stored : defaultMode;
+  } catch {
+    return defaultMode;
+  }
+}
+
+function saveViewMode(mode: ViewMode): void {
+  try {
+    localStorage.setItem(VIEW_MODE_KEY, mode);
+  } catch {
+    // localStorage를 쓸 수 없는 환경이면 조용히 무시
+  }
+}
 
 const FEATURES = [
   {
@@ -64,8 +86,21 @@ export function App() {
   const [adhocOpen, setAdhocOpen] = useState(false);
   const [apiSettings, setApiSettings] = useState<ApiSettings>(() => loadApiSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(() =>
+    loadViewMode(window.__QA_REPORT_DATA__?.length ? "report" : "landing")
+  );
 
   const isLiveMode = !hasBakedData || Boolean(apiSettings.apiBase);
+
+  function goToLanding() {
+    setViewMode("landing");
+    saveViewMode("landing");
+  }
+
+  function goToReport() {
+    setViewMode("report");
+    saveViewMode("report");
+  }
 
   useEffect(() => {
     if (!isLiveMode) return;
@@ -86,6 +121,7 @@ export function App() {
       if (!res.ok || !data.entries) throw new Error(data.error ?? "QA 실행에 실패했습니다.");
       setEntries(withApiBase(data.entries));
       setSelected(0);
+      goToReport();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -112,6 +148,7 @@ export function App() {
   function handleAdhocSuccess(newEntries: ScreenReportEntry[]) {
     setEntries(newEntries);
     setSelected(0);
+    goToReport();
   }
 
   const adhocDialog = isLiveMode && (
@@ -156,7 +193,7 @@ export function App() {
     />
   );
 
-  if (entries.length === 0) {
+  if (viewMode === "landing" || entries.length === 0) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
@@ -171,7 +208,14 @@ export function App() {
             background: "linear-gradient(180deg, #f5f3ff 0%, #fafafa 260px)",
           }}
         >
-          <Box sx={{ position: "absolute", top: 16, right: 16 }}>{settingsButton}</Box>
+          <Stack direction="row" spacing={1} sx={{ position: "absolute", top: 16, right: 16 }}>
+            {entries.length > 0 && (
+              <Button size="small" variant="text" onClick={goToReport}>
+                이전 결과 보기
+              </Button>
+            )}
+            {settingsButton}
+          </Stack>
           <Box sx={{ maxWidth: 760, width: "100%", textAlign: "center" }}>
             <Chip
               label="Design ↔ Publishing QA"
@@ -284,7 +328,14 @@ export function App() {
               <Typography variant="subtitle1" fontWeight={700}>
                 디자인 vs 퍼블리싱 QA
               </Typography>
-              {settingsButton}
+              <Stack direction="row">
+                <Tooltip title="실행 전 처음 화면으로">
+                  <IconButton size="small" onClick={goToLanding}>
+                    <ArrowBackIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                {settingsButton}
+              </Stack>
             </Stack>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
               {refreshButton}
