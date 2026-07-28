@@ -112,23 +112,6 @@ export function App() {
       });
   }, [isLiveMode, apiSettings.apiBase]);
 
-  async function runQa() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await apiFetch("/api/run", { method: "POST" });
-      const data = (await res.json()) as { entries?: ScreenReportEntry[]; error?: string };
-      if (!res.ok || !data.entries) throw new Error(data.error ?? "QA 실행에 실패했습니다.");
-      setEntries(withApiBase(data.entries));
-      setSelected(0);
-      goToReport();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function refreshEntry(name: string) {
     setRefreshingName(name);
     setError(null);
@@ -158,18 +141,6 @@ export function App() {
   const adhocButton = isLiveMode && (
     <Button size="small" variant="outlined" disabled={loading} onClick={() => setAdhocOpen(true)}>
       직접입력 QA 실행
-    </Button>
-  );
-
-  const refreshButton = isLiveMode && (
-    <Button
-      size="small"
-      variant="contained"
-      disabled={loading}
-      onClick={() => void runQa()}
-      startIcon={loading ? <CircularProgress size={14} color="inherit" /> : undefined}
-    >
-      {loading ? "실행 중..." : "로컬 QA 실행"}
     </Button>
   );
 
@@ -267,16 +238,6 @@ export function App() {
                     size="large"
                     variant="contained"
                     disabled={loading}
-                    onClick={() => void runQa()}
-                    startIcon={loading ? <CircularProgress size={16} color="inherit" /> : undefined}
-                    sx={{ px: 5, py: 1.25, fontWeight: 700 }}
-                  >
-                    {loading ? "실행 중..." : "로컬 QA 실행"}
-                  </Button>
-                  <Button
-                    size="large"
-                    variant="outlined"
-                    disabled={loading}
                     onClick={() => setAdhocOpen(true)}
                     sx={{ px: 5, py: 1.25, fontWeight: 700 }}
                   >
@@ -284,7 +245,7 @@ export function App() {
                   </Button>
                 </Stack>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
-                  qa.config.json에 정의된 화면 기준으로 실행하거나, baseUrl·이미지·경로를 직접 입력해서 한 화면만 실행할 수 있습니다.
+                  baseUrl·이미지·경로를 직접 입력해서 한 화면만 실행할 수 있습니다.
                 </Typography>
               </>
             ) : (
@@ -338,7 +299,6 @@ export function App() {
               </Stack>
             </Stack>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              {refreshButton}
               {adhocButton}
             </Stack>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
