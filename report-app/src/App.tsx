@@ -155,11 +155,7 @@ export function App() {
     <AdhocRunDialog open={adhocOpen} onClose={() => setAdhocOpen(false)} onSuccess={handleAdhocSuccess} />
   );
 
-  const adhocButton = isLiveMode && (
-    <Button size="small" variant="outlined" disabled={loading} onClick={() => setAdhocOpen(true)}>
-      직접입력 QA 실행
-    </Button>
-  );
+  const adhocButton = false;
 
   const refreshButton = isLiveMode && (
     <Button
@@ -273,18 +269,9 @@ export function App() {
                   >
                     {loading ? "실행 중..." : "로컬 QA 실행"}
                   </Button>
-                  <Button
-                    size="large"
-                    variant="outlined"
-                    disabled={loading}
-                    onClick={() => setAdhocOpen(true)}
-                    sx={{ px: 5, py: 1.25, fontWeight: 700 }}
-                  >
-                    직접입력 QA 실행
-                  </Button>
                 </Stack>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
-                  qa.config.json에 정의된 화면 기준으로 실행하거나, baseUrl·이미지·경로를 직접 입력해서 한 화면만 실행할 수 있습니다.
+                  qa.config.json에 정의된 화면 기준으로 실행합니다.
                 </Typography>
               </>
             ) : (
