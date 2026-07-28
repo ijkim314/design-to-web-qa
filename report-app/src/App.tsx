@@ -15,10 +15,13 @@ import CssBaseline from "@mui/material/CssBaseline";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import SettingsIcon from "@mui/icons-material/Settings";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { CompareView } from "./CompareView";
 import { AccessibilityView } from "./AccessibilityView";
 import { AdhocRunDialog } from "./AdhocRunDialog";
+import { ApiSettingsDialog } from "./ApiSettingsDialog";
+import { apiFetch, loadApiSettings, withApiBase, type ApiSettings } from "./apiConfig";
 import type { ScreenReportEntry } from "./types";
 
 const theme = createTheme({
@@ -30,8 +33,8 @@ const theme = createTheme({
 });
 
 // 정적 리포트(HTML 단일 파일)는 window.__QA_REPORT_DATA__로 데이터가 주입되어 있다.
-// 없으면 `npm run qa:dev` 라이브 서버에서 열린 것으로 보고 API로 데이터를 가져온다.
-const isLiveMode = typeof window !== "undefined" && window.__QA_REPORT_DATA__ === undefined;
+// 라이브 모드는 그게 없거나(로컬 qa:dev), 정적 리포트에서 원격 백엔드(apiBase)를 설정한 경우다.
+const hasBakedData = typeof window !== "undefined" && window.__QA_REPORT_DATA__ !== undefined;
 
 const FEATURES = [
   {
@@ -59,25 +62,29 @@ export function App() {
   const [showDiff, setShowDiff] = useState(true);
   const [refreshingName, setRefreshingName] = useState<string | null>(null);
   const [adhocOpen, setAdhocOpen] = useState(false);
+  const [apiSettings, setApiSettings] = useState<ApiSettings>(() => loadApiSettings());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const isLiveMode = !hasBakedData || Boolean(apiSettings.apiBase);
 
   useEffect(() => {
     if (!isLiveMode) return;
-    fetch("/api/latest")
+    apiFetch("/api/latest")
       .then((res) => res.json())
-      .then((data: { entries: ScreenReportEntry[] }) => setEntries(data.entries))
+      .then((data: { entries: ScreenReportEntry[] }) => setEntries(withApiBase(data.entries)))
       .catch(() => {
         // 초기 로드 실패는 조용히 무시하고 "실행" 버튼으로 유도한다.
       });
-  }, []);
+  }, [isLiveMode, apiSettings.apiBase]);
 
   async function runQa() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/run", { method: "POST" });
+      const res = await apiFetch("/api/run", { method: "POST" });
       const data = (await res.json()) as { entries?: ScreenReportEntry[]; error?: string };
       if (!res.ok || !data.entries) throw new Error(data.error ?? "QA 실행에 실패했습니다.");
-      setEntries(data.entries);
+      setEntries(withApiBase(data.entries));
       setSelected(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -90,10 +97,10 @@ export function App() {
     setRefreshingName(name);
     setError(null);
     try {
-      const res = await fetch(`/api/refresh?name=${encodeURIComponent(name)}`, { method: "POST" });
+      const res = await apiFetch(`/api/refresh?name=${encodeURIComponent(name)}`, { method: "POST" });
       const data = (await res.json()) as { entry?: ScreenReportEntry; error?: string };
       if (!res.ok || !data.entry) throw new Error(data.error ?? "새로고침에 실패했습니다.");
-      const updated = data.entry;
+      const updated = withApiBase([data.entry])[0];
       setEntries((prev) => prev.map((e) => (e.name === name ? updated : e)));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -129,12 +136,33 @@ export function App() {
     </Button>
   );
 
+  const settingsButton = (
+    <Tooltip title="원격 QA 백엔드 연결 설정">
+      <IconButton size="small" onClick={() => setSettingsOpen(true)}>
+        <SettingsIcon fontSize="small" />
+      </IconButton>
+    </Tooltip>
+  );
+
+  const settingsDialog = (
+    <ApiSettingsDialog
+      open={settingsOpen}
+      settings={apiSettings}
+      onClose={() => setSettingsOpen(false)}
+      onSave={(next) => {
+        setApiSettings(next);
+        setSettingsOpen(false);
+      }}
+    />
+  );
+
   if (entries.length === 0) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <Box
           sx={{
+            position: "relative",
             minHeight: "100vh",
             display: "flex",
             alignItems: "center",
@@ -143,6 +171,7 @@ export function App() {
             background: "linear-gradient(180deg, #f5f3ff 0%, #fafafa 260px)",
           }}
         >
+          <Box sx={{ position: "absolute", top: 16, right: 16 }}>{settingsButton}</Box>
           <Box sx={{ maxWidth: 760, width: "100%", textAlign: "center" }}>
             <Chip
               label="Design ↔ Publishing QA"
@@ -226,6 +255,7 @@ export function App() {
           </Box>
         </Box>
         {adhocDialog}
+        {settingsDialog}
       </ThemeProvider>
     );
   }
@@ -250,9 +280,12 @@ export function App() {
           }}
         >
           <Box sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>
-            <Typography variant="subtitle1" fontWeight={700}>
-              디자인 vs 퍼블리싱 QA
-            </Typography>
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Typography variant="subtitle1" fontWeight={700}>
+                디자인 vs 퍼블리싱 QA
+              </Typography>
+              {settingsButton}
+            </Stack>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
               {refreshButton}
               {adhocButton}
@@ -412,6 +445,7 @@ export function App() {
         </Box>
       </Box>
       {adhocDialog}
+      {settingsDialog}
     </ThemeProvider>
   );
 }

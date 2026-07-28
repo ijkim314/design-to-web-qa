@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: design-to-web-qa-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: QA_RUN_TOKEN
+        sync: false
+      - key: ALLOWED_ORIGIN
+        value: https://ijkim314.github.io
