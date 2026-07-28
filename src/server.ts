@@ -4,7 +4,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { createQaRequestHandler } from "./api.js";
 
 const PORT = Number(process.env.PORT ?? 5183);
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? "https://ijkim314.github.io";
+// 쉼표로 여러 origin을 지정할 수 있다 (예: 배포된 GitHub Pages + 로컬 개발 서버).
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGIN ?? "https://ijkim314.github.io")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const TOKEN = process.env.QA_RUN_TOKEN;
 const configPath = process.env.QA_CONFIG_PATH ?? path.resolve("qa.config.json");
 const REPORT_APP_DIST = path.resolve("report-app/dist");
@@ -29,7 +33,10 @@ function serveStaticIndex(res: http.ServerResponse) {
 }
 
 const server = http.createServer((req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  const requestOrigin = req.headers.origin;
+  const allowedOrigin =
+    requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin) ? requestOrigin : ALLOWED_ORIGINS[0];
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Vary", "Origin");
 
   if (req.method === "OPTIONS") {
@@ -60,5 +67,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`QA 백엔드 서버가 포트 ${PORT}에서 실행 중입니다. (허용 origin: ${ALLOWED_ORIGIN})`);
+  console.log(`QA 백엔드 서버가 포트 ${PORT}에서 실행 중입니다. (허용 origin: ${ALLOWED_ORIGINS.join(", ")})`);
 });

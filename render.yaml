@@ -9,4 +9,4 @@ services:
       - key: QA_RUN_TOKEN
         sync: false
       - key: ALLOWED_ORIGIN
-        value: https://ijkim314.github.io
+        value: https://ijkim314.github.io,http://localhost:5183
