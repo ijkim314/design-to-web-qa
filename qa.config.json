@@ -9,5 +9,30 @@
     "excludeRules": [],
     "failSeverities": ["critical", "serious"]
   },
-  "screens": []
+  "screens": [
+    {
+      "name": "hanabank",
+      "designImage": "designs/hanabank.png",
+      "path": "/blog/html/design-to-web/hanabank/hanabank-notifications.html",
+      "viewport": { "width": 393, "height": 852, "deviceScaleFactor": 1 },
+      "fullPage": true,
+      "accessibility": true
+    },
+    {
+      "name": "법원도서관 로그인",
+      "designImage": "designs/court-library001.png",
+      "path": "/blog/html/design-to-web/court-library/court-library-login.html",
+      "viewport": { "width": 364, "height": 526, "deviceScaleFactor": 1 },
+      "fullPage": true,
+      "accessibility": true
+    },
+    {
+      "name": "법원도서관 상세화면",
+      "designImage": "designs/court-library002.png",
+      "path": "/blog/html/design-to-web/court-library/court-library-management.html",
+      "viewport": { "width": 1920, "height": 1259, "deviceScaleFactor": 1 },
+      "fullPage": true,
+      "accessibility": true
+    }
+  ]
 }
