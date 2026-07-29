@@ -41,26 +41,7 @@ const theme = createTheme({
 const hasBakedData = typeof window !== "undefined" && window.__QA_REPORT_DATA__ !== undefined;
 
 type ViewMode = "landing" | "report";
-const VIEW_MODE_KEY = "qa-view-mode-v1";
 type EntriesSource = "config" | "adhoc";
-
-// 새로고침/재접속 후에도 사용자가 마지막으로 보던 화면(랜딩 vs 리포트)을 유지한다.
-function loadViewMode(defaultMode: ViewMode): ViewMode {
-  try {
-    const stored = localStorage.getItem(VIEW_MODE_KEY);
-    return stored === "landing" || stored === "report" ? stored : defaultMode;
-  } catch {
-    return defaultMode;
-  }
-}
-
-function saveViewMode(mode: ViewMode): void {
-  try {
-    localStorage.setItem(VIEW_MODE_KEY, mode);
-  } catch {
-    // localStorage를 쓸 수 없는 환경이면 조용히 무시
-  }
-}
 
 const FEATURES = [
   {
@@ -92,20 +73,17 @@ export function App() {
   const [editEntry, setEditEntry] = useState<ScreenReportEntry | null>(null);
   const [apiSettings, setApiSettings] = useState<ApiSettings>(() => loadApiSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>(() =>
-    loadViewMode(window.__QA_REPORT_DATA__?.length ? "report" : "landing")
-  );
+  // URL로 접속하면 항상 첫 화면(랜딩)부터 보여준다. 이전 결과는 "이전 결과 보기" 버튼으로 이동.
+  const [viewMode, setViewMode] = useState<ViewMode>("landing");
 
   const isLiveMode = !hasBakedData || Boolean(apiSettings.token);
 
   function goToLanding() {
     setViewMode("landing");
-    saveViewMode("landing");
   }
 
   function goToReport() {
     setViewMode("report");
-    saveViewMode("report");
   }
 
   useEffect(() => {
