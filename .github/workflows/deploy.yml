@@ -44,17 +44,10 @@ jobs:
         run: npm run qa
         continue-on-error: true
 
-      - name: Locate latest report
-        id: report
-        run: |
-          LATEST_DIR=$(ls -1t reports | head -n 1)
-          echo "리포트 폴더: reports/$LATEST_DIR"
-          echo "dir=reports/$LATEST_DIR" >> "$GITHUB_OUTPUT"
-
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ${{ steps.report.outputs.dir }}
+          path: report-app/dist
 
       - name: Deploy to GitHub Pages
         id: deployment
