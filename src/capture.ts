@@ -1,7 +1,9 @@
+import { writeFileSync } from "node:fs";
 import { chromium, type Browser } from "playwright";
 import type { AccessibilityScanOptions, QaConfig, ScreenConfig, Viewport } from "./config.js";
 import { runAccessibilityScan, type AccessibilityResult } from "./accessibility.js";
 import { Semaphore } from "./semaphore.js";
+import { getCachedAccessibility, setCachedAccessibility, hashBuffer, hashText } from "./cache.js";
 
 const DISABLE_MOTION_CSS = `
   *, *::before, *::after {
@@ -63,10 +65,20 @@ export async function captureScreen(
       await page.evaluate(() => document.fonts.ready);
       await page.addStyleTag({ content: DISABLE_MOTION_CSS });
 
-      await page.screenshot({ path: outputPath, fullPage: screen.fullPage ?? false });
+      const screenshot = await page.screenshot({ fullPage: screen.fullPage ?? false });
+      writeFileSync(outputPath, screenshot);
 
       if (!accessibilityOptions) return null;
-      return await runAccessibilityScan(page, accessibilityOptions);
+
+      // 스크린샷 내용이 이전 실행과 완전히 동일하면 접근성도 동일하다고 보고
+      // axe-core 재검사를 건너뛴다(화면엔 안 보이는 aria 속성만 바뀐 경우는 예외).
+      const a11yCacheKey = `${hashBuffer(screenshot)}:${hashText(JSON.stringify(accessibilityOptions))}`;
+      const cached = getCachedAccessibility(a11yCacheKey);
+      if (cached) return cached;
+
+      const result = await runAccessibilityScan(page, accessibilityOptions);
+      setCachedAccessibility(a11yCacheKey, result);
+      return result;
     } finally {
       await context.close();
     }

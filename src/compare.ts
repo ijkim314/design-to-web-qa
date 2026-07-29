@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import { recognizeRegionText } from "./ocr.js";
+import { getCachedCompare, setCachedCompare, hashBuffer } from "./cache.js";
 
 export interface DiffRegion {
   x: number;
@@ -34,8 +35,20 @@ export async function compareImages(
   diffOutputPath: string,
   diffThreshold: number
 ): Promise<CompareResult> {
-  const designPng = PNG.sync.read(readFileSync(designPath));
-  const capturePng = PNG.sync.read(readFileSync(capturePath));
+  const designRaw = readFileSync(designPath);
+  const captureRaw = readFileSync(capturePath);
+
+  // 디자인/캡처 바이트와 diffThreshold가 이전 실행과 완전히 같으면 결과도 항상
+  // 같으므로, 픽셀 비교/리전 분류/OCR을 전부 다시 하지 않고 캐시를 재사용한다.
+  const cacheKey = `${hashBuffer(designRaw)}:${hashBuffer(captureRaw)}:${diffThreshold}`;
+  const cached = getCachedCompare(cacheKey);
+  if (cached) {
+    writeFileSync(diffOutputPath, cached.diffBuffer);
+    return cached.result;
+  }
+
+  const designPng = PNG.sync.read(designRaw);
+  const capturePng = PNG.sync.read(captureRaw);
 
   const width = Math.min(designPng.width, capturePng.width);
   const height = Math.min(designPng.height, capturePng.height);
@@ -55,7 +68,8 @@ export async function compareImages(
     { threshold: diffThreshold, diffMask: true }
   );
 
-  writeFileSync(diffOutputPath, PNG.sync.write(diff));
+  const diffBuffer = PNG.sync.write(diff);
+  writeFileSync(diffOutputPath, diffBuffer);
 
   const classified = findDiffRegions(diff.data, width, height).map((region) =>
     classifyRegion(designCropped.data, captureCropped.data, width, height, region)
@@ -63,7 +77,7 @@ export async function compareImages(
   const regions = await refineWithOcr(classified, designCropped, captureCropped);
 
   const totalPixels = width * height;
-  return {
+  const result: CompareResult = {
     diffPixelCount,
     totalPixels,
     diffPercentage: (diffPixelCount / totalPixels) * 100,
@@ -72,6 +86,9 @@ export async function compareImages(
     dimensionMismatch,
     regions,
   };
+
+  setCachedCompare(cacheKey, result, diffBuffer);
+  return result;
 }
 
 function cropTo(png: PNG, width: number, height: number): PNG {
@@ -175,6 +192,7 @@ const CHANNEL_DIFF_THRESHOLD = 60;
 
 const OCR_CONFIDENCE_THRESHOLD = 75;
 const MAX_OCR_REGION_DIMENSION = 300;
+const MAX_OCR_REGIONS_PER_SCREEN = 5;
 
 type RegionKind = "shift" | "extra" | "missing" | "color" | "content";
 
@@ -253,15 +271,19 @@ async function refineWithOcr(
   captureCropped: PNG
 ): Promise<DiffRegion[]> {
   const result: DiffRegion[] = [];
+  let ocrCount = 0;
 
   for (const { kind, ...region } of regions) {
     // 화면 대부분을 뒤덮는 영역은 로고·입력창·버튼 등 여러 요소가 하나로 뭉친 것이라
     // OCR을 통째로 돌리면 서로 무관한 글자가 섞여 의미 없는 결과가 나온다.
     const isTooLargeForOcr = region.width > MAX_OCR_REGION_DIMENSION || region.height > MAX_OCR_REGION_DIMENSION;
-    if (kind !== "content" || isTooLargeForOcr) {
+    // regions는 diffPixelCount 내림차순으로 들어오므로, 상한을 넘는 나머지는
+    // diff가 작은 content 리전이라 원래 휴리스틱 설명을 유지한 채 건너뛴다.
+    if (kind !== "content" || isTooLargeForOcr || ocrCount >= MAX_OCR_REGIONS_PER_SCREEN) {
       result.push(region);
       continue;
     }
+    ocrCount++;
 
     const [design, capture] = await Promise.all([
       recognizeRegionText(designCropped, region.x, region.y, region.width, region.height),
