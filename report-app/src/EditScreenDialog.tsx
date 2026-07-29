@@ -22,6 +22,7 @@ interface EditScreenDialogProps {
   entry: ScreenReportEntry | null;
   onClose: () => void;
   onSuccess: (entry: ScreenReportEntry) => void;
+  onRunningChange?: (running: boolean) => void;
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -33,7 +34,7 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
-export function EditScreenDialog({ open, entry, onClose, onSuccess }: EditScreenDialogProps) {
+export function EditScreenDialog({ open, entry, onClose, onSuccess, onRunningChange }: EditScreenDialogProps) {
   const [screenPath, setScreenPath] = useState("");
   const [width, setWidth] = useState("");
   const [height, setHeight] = useState("");
@@ -80,6 +81,7 @@ export function EditScreenDialog({ open, entry, onClose, onSuccess }: EditScreen
     }
 
     setLoading(true);
+    onRunningChange?.(true);
     setError(null);
     try {
       const body = {
@@ -108,6 +110,7 @@ export function EditScreenDialog({ open, entry, onClose, onSuccess }: EditScreen
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+      onRunningChange?.(false);
     }
   }
 

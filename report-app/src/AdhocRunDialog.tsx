@@ -25,6 +25,7 @@ interface AdhocRunDialogProps {
   open: boolean;
   onClose: () => void;
   onSuccess: (entries: ScreenReportEntry[]) => void;
+  onRunningChange?: (running: boolean) => void;
 }
 
 interface ScreenRow {
@@ -163,7 +164,7 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
-export function AdhocRunDialog({ open, onClose, onSuccess }: AdhocRunDialogProps) {
+export function AdhocRunDialog({ open, onClose, onSuccess, onRunningChange }: AdhocRunDialogProps) {
   const [baseUrl, setBaseUrl] = useState(() => loadStoredForm()?.baseUrl ?? "");
   const [rows, setRows] = useState<ScreenRow[]>(initialRows);
   const [loading, setLoading] = useState(false);
@@ -261,6 +262,7 @@ export function AdhocRunDialog({ open, onClose, onSuccess }: AdhocRunDialogProps
     }
 
     setLoading(true);
+    onRunningChange?.(true);
     setError(null);
     try {
       const screens = await Promise.all(
@@ -293,6 +295,7 @@ export function AdhocRunDialog({ open, onClose, onSuccess }: AdhocRunDialogProps
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+      onRunningChange?.(false);
     }
   }
 

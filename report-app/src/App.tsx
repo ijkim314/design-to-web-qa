@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
@@ -40,6 +40,8 @@ const theme = createTheme({
 // 라이브 모드는 그게 없거나(로컬 qa:dev), 정적 리포트에서 토큰을 설정한 경우다.
 const hasBakedData = typeof window !== "undefined" && window.__QA_REPORT_DATA__ !== undefined;
 
+const BASE_TITLE = "QA Report";
+
 type ViewMode = "landing" | "report";
 type EntriesSource = "config" | "adhoc";
 
@@ -68,6 +70,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(true);
   const [refreshingName, setRefreshingName] = useState<string | null>(null);
+  const [adhocRunning, setAdhocRunning] = useState(false);
+  const [editRunning, setEditRunning] = useState(false);
   const [entriesSource, setEntriesSource] = useState<EntriesSource>("config");
   const [adhocOpen, setAdhocOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<ScreenReportEntry | null>(null);
@@ -99,6 +103,33 @@ export function App() {
       });
   }, [isLiveMode, apiSettings.token]);
 
+  const isRunning = loading || refreshingName !== null || adhocRunning || editRunning;
+  const wasRunningRef = useRef(false);
+
+  // 실행 중/완료 상태를 브라우저 탭 제목에 반영한다. 완료 시점에 탭을 보고 있지 않았다면
+  // "완료" 표시를 남겨두고, 다시 탭을 봤을 때(visibilitychange) 원래 제목으로 되돌린다.
+  useEffect(() => {
+    if (isRunning) {
+      document.title = `⏳ 실행 중… · ${BASE_TITLE}`;
+      wasRunningRef.current = true;
+      return;
+    }
+    if (wasRunningRef.current) {
+      wasRunningRef.current = false;
+      document.title = document.visibilityState === "visible" ? BASE_TITLE : `✅ 완료 · ${BASE_TITLE}`;
+    }
+  }, [isRunning]);
+
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        document.title = BASE_TITLE;
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
   async function refreshEntry(name: string) {
     setRefreshingName(name);
     setError(null);
@@ -128,7 +159,12 @@ export function App() {
   }
 
   const adhocDialog = isLiveMode && (
-    <AdhocRunDialog open={adhocOpen} onClose={() => setAdhocOpen(false)} onSuccess={handleAdhocSuccess} />
+    <AdhocRunDialog
+      open={adhocOpen}
+      onClose={() => setAdhocOpen(false)}
+      onSuccess={handleAdhocSuccess}
+      onRunningChange={setAdhocRunning}
+    />
   );
 
   const editDialog = isLiveMode && (
@@ -137,6 +173,7 @@ export function App() {
       entry={editEntry}
       onClose={() => setEditEntry(null)}
       onSuccess={handleEditSuccess}
+      onRunningChange={setEditRunning}
     />
   );
 
