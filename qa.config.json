@@ -12,7 +12,7 @@
   "screens": [
     {
       "name": "hanabank",
-      "designImage": "designs/hanabank.png",
+      "designImage": "designs/hanabank001.png",
       "path": "/blog/html/design-to-web/hanabank/hanabank-notifications.html",
       "viewport": { "width": 393, "height": 852, "deviceScaleFactor": 1 },
       "fullPage": true,
