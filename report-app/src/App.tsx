@@ -105,29 +105,58 @@ export function App() {
 
   const isRunning = loading || refreshingName !== null || adhocRunning || editRunning;
   const wasRunningRef = useRef(false);
+  const showingDoneRef = useRef(false);
+  const revertTimerRef = useRef<number | null>(null);
 
   // 실행 중/완료 상태를 브라우저 탭 제목에 반영한다. 완료 시점에 탭을 보고 있지 않았다면
-  // "완료" 표시를 남겨두고, 다시 탭을 봤을 때(visibilitychange) 원래 제목으로 되돌린다.
+  // "완료" 표시를 그대로 남겨두고, 다시 탭을 봤을 때 잠시(5초) 더 보여준 뒤 원래 제목으로 되돌린다.
+  function clearRevertTimer() {
+    if (revertTimerRef.current !== null) {
+      window.clearTimeout(revertTimerRef.current);
+      revertTimerRef.current = null;
+    }
+  }
+
+  function scheduleRevert() {
+    clearRevertTimer();
+    revertTimerRef.current = window.setTimeout(() => {
+      document.title = BASE_TITLE;
+      showingDoneRef.current = false;
+      revertTimerRef.current = null;
+    }, 5000);
+  }
+
   useEffect(() => {
     if (isRunning) {
+      clearRevertTimer();
       document.title = `⏳ 실행 중… · ${BASE_TITLE}`;
       wasRunningRef.current = true;
+      showingDoneRef.current = false;
       return;
     }
     if (wasRunningRef.current) {
       wasRunningRef.current = false;
-      document.title = document.visibilityState === "visible" ? BASE_TITLE : `✅ 완료 · ${BASE_TITLE}`;
+      document.title = `✅ 완료 · ${BASE_TITLE}`;
+      showingDoneRef.current = true;
+      // 지금 탭을 보고 있는 상태에서 끝났다면 그 자리에서 바로 5초 뒤 되돌린다.
+      if (document.visibilityState === "visible") scheduleRevert();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning]);
 
   useEffect(() => {
     function handleVisibility() {
-      if (document.visibilityState === "visible") {
-        document.title = BASE_TITLE;
+      // 다른 탭에 있다가 돌아왔을 때 "완료" 표시가 남아있다면, 그 순간부터 5초를 다시 준다.
+      if (document.visibilityState === "visible" && showingDoneRef.current) {
+        scheduleRevert();
       }
     }
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearRevertTimer();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function refreshEntry(name: string) {
