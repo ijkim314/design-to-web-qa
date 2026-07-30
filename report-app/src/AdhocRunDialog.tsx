@@ -18,7 +18,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import type { ScreenReportEntry } from "./types";
-import { apiFetch, withApiBase } from "./apiConfig";
+import { apiFetch } from "./apiConfig";
 
 interface AdhocRunDialogProps {
   open: boolean;
@@ -279,7 +279,7 @@ export function AdhocRunDialog({ open, onClose, onSuccess }: AdhocRunDialogProps
       });
       const data = (await res.json()) as { entries?: ScreenReportEntry[]; error?: string };
       if (!res.ok || !data.entries) throw new Error(data.error ?? "실행에 실패했습니다.");
-      onSuccess(withApiBase(data.entries));
+      onSuccess(data.entries);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

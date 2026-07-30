@@ -1,13 +1,22 @@
 import { PNG } from "pngjs";
 import { createWorker, OEM, type Worker } from "tesseract.js";
+import { fileURLToPath } from "node:url";
 
 const OCR_SCALE = 3;
+
+// eng.traineddata / kor.traineddata가 위치한 프로젝트 루트 (오프라인 환경에서 CDN 접근 없이 로드하기 위함)
+const LANG_PATH = fileURLToPath(new URL("..", import.meta.url));
 
 let workerPromise: Promise<Worker> | null = null;
 
 function getWorker(): Promise<Worker> {
   if (!workerPromise) {
-    workerPromise = createWorker("kor+eng", OEM.LSTM_ONLY, { logger: () => {} });
+    workerPromise = createWorker("kor+eng", OEM.LSTM_ONLY, {
+      langPath: LANG_PATH,
+      gzip: false,
+      cacheMethod: "none",
+      logger: () => {},
+    });
   }
   return workerPromise;
 }

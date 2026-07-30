@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
@@ -15,14 +15,12 @@ import CssBaseline from "@mui/material/CssBaseline";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import SettingsIcon from "@mui/icons-material/Settings";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { CompareView } from "./CompareView";
 import { AccessibilityView } from "./AccessibilityView";
 import { AdhocRunDialog } from "./AdhocRunDialog";
-import { ApiSettingsDialog } from "./ApiSettingsDialog";
-import { apiFetch, loadApiSettings, withApiBase, type ApiSettings } from "./apiConfig";
+import { apiFetch } from "./apiConfig";
 import type { ScreenReportEntry } from "./types";
 
 const theme = createTheme({
@@ -34,8 +32,10 @@ const theme = createTheme({
 });
 
 // 정적 리포트(HTML 단일 파일)는 window.__QA_REPORT_DATA__로 데이터가 주입되어 있다.
-// 라이브 모드는 그게 없거나(로컬 qa:dev), 정적 리포트에서 원격 백엔드(apiBase)를 설정한 경우다.
+// 라이브 모드는 그게 없는 경우(로컬 qa:dev)다.
 const hasBakedData = typeof window !== "undefined" && window.__QA_REPORT_DATA__ !== undefined;
+
+const BASE_TITLE = "QA Report";
 
 type ViewMode = "landing" | "report";
 const VIEW_MODE_KEY = "qa-view-mode-v1";
@@ -84,13 +84,11 @@ export function App() {
   const [showDiff, setShowDiff] = useState(true);
   const [refreshingName, setRefreshingName] = useState<string | null>(null);
   const [adhocOpen, setAdhocOpen] = useState(false);
-  const [apiSettings, setApiSettings] = useState<ApiSettings>(() => loadApiSettings());
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(() =>
     loadViewMode(window.__QA_REPORT_DATA__?.length ? "report" : "landing")
   );
 
-  const isLiveMode = !hasBakedData || Boolean(apiSettings.apiBase);
+  const isLiveMode = !hasBakedData;
 
   function goToLanding() {
     setViewMode("landing");
@@ -106,11 +104,67 @@ export function App() {
     if (!isLiveMode) return;
     apiFetch("/api/latest")
       .then((res) => res.json())
-      .then((data: { entries: ScreenReportEntry[] }) => setEntries(withApiBase(data.entries)))
+      .then((data: { entries: ScreenReportEntry[] }) => setEntries(data.entries))
       .catch(() => {
         // 초기 로드 실패는 조용히 무시하고 "실행" 버튼으로 유도한다.
       });
-  }, [isLiveMode, apiSettings.apiBase]);
+  }, [isLiveMode]);
+
+  const isRunning = loading || refreshingName !== null;
+  const wasRunningRef = useRef(false);
+  const showingDoneRef = useRef(false);
+  const revertTimerRef = useRef<number | null>(null);
+
+  // 실행 중/완료 상태를 브라우저 탭 제목에 반영한다. 완료 시점에 탭을 보고 있지 않았다면
+  // "완료" 표시를 그대로 남겨두고, 다시 탭을 봤을 때 잠시(5초) 더 보여준 뒤 원래 제목으로 되돌린다.
+  function clearRevertTimer() {
+    if (revertTimerRef.current !== null) {
+      window.clearTimeout(revertTimerRef.current);
+      revertTimerRef.current = null;
+    }
+  }
+
+  function scheduleRevert() {
+    clearRevertTimer();
+    revertTimerRef.current = window.setTimeout(() => {
+      document.title = BASE_TITLE;
+      showingDoneRef.current = false;
+      revertTimerRef.current = null;
+    }, 5000);
+  }
+
+  useEffect(() => {
+    if (isRunning) {
+      clearRevertTimer();
+      document.title = `⏳ 실행 중… · ${BASE_TITLE}`;
+      wasRunningRef.current = true;
+      showingDoneRef.current = false;
+      return;
+    }
+    if (wasRunningRef.current) {
+      wasRunningRef.current = false;
+      document.title = `✅ 완료 · ${BASE_TITLE}`;
+      showingDoneRef.current = true;
+      // 지금 탭을 보고 있는 상태에서 끝났다면 그 자리에서 바로 5초 뒤 되돌린다.
+      if (document.visibilityState === "visible") scheduleRevert();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]);
+
+  useEffect(() => {
+    function handleVisibility() {
+      // 다른 탭에 있다가 돌아왔을 때 "완료" 표시가 남아있다면, 그 순간부터 5초를 다시 준다.
+      if (document.visibilityState === "visible" && showingDoneRef.current) {
+        scheduleRevert();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearRevertTimer();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function runQa() {
     setLoading(true);
@@ -119,7 +173,7 @@ export function App() {
       const res = await apiFetch("/api/run", { method: "POST" });
       const data = (await res.json()) as { entries?: ScreenReportEntry[]; error?: string };
       if (!res.ok || !data.entries) throw new Error(data.error ?? "QA 실행에 실패했습니다.");
-      setEntries(withApiBase(data.entries));
+      setEntries(data.entries);
       setSelected(0);
       goToReport();
     } catch (err) {
@@ -136,7 +190,7 @@ export function App() {
       const res = await apiFetch(`/api/refresh?name=${encodeURIComponent(name)}`, { method: "POST" });
       const data = (await res.json()) as { entry?: ScreenReportEntry; error?: string };
       if (!res.ok || !data.entry) throw new Error(data.error ?? "새로고침에 실패했습니다.");
-      const updated = withApiBase([data.entry])[0];
+      const updated = data.entry;
       setEntries((prev) => prev.map((e) => (e.name === name ? updated : e)));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -155,38 +209,14 @@ export function App() {
     <AdhocRunDialog open={adhocOpen} onClose={() => setAdhocOpen(false)} onSuccess={handleAdhocSuccess} />
   );
 
-  const adhocButton = false;
-
   const refreshButton = isLiveMode && (
-    <Button
-      size="small"
-      variant="contained"
-      disabled={loading}
-      onClick={() => void runQa()}
-      startIcon={loading ? <CircularProgress size={14} color="inherit" /> : undefined}
-    >
-      {loading ? "실행 중..." : "로컬 QA 실행"}
-    </Button>
-  );
-
-  const settingsButton = (
-    <Tooltip title="원격 QA 백엔드 연결 설정">
-      <IconButton size="small" onClick={() => setSettingsOpen(true)}>
-        <SettingsIcon fontSize="small" />
-      </IconButton>
+    <Tooltip title="전체 새로고침 (로컬 QA 실행)">
+      <span>
+        <IconButton size="small" disabled={loading} onClick={() => void runQa()}>
+          {loading ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+        </IconButton>
+      </span>
     </Tooltip>
-  );
-
-  const settingsDialog = (
-    <ApiSettingsDialog
-      open={settingsOpen}
-      settings={apiSettings}
-      onClose={() => setSettingsOpen(false)}
-      onSave={(next) => {
-        setApiSettings(next);
-        setSettingsOpen(false);
-      }}
-    />
   );
 
   if (viewMode === "landing" || entries.length === 0) {
@@ -210,7 +240,6 @@ export function App() {
                 이전 결과 보기
               </Button>
             )}
-            {settingsButton}
           </Stack>
           <Box sx={{ maxWidth: 760, width: "100%", textAlign: "center" }}>
             <Chip
@@ -286,7 +315,6 @@ export function App() {
           </Box>
         </Box>
         {adhocDialog}
-        {settingsDialog}
       </ThemeProvider>
     );
   }
@@ -316,17 +344,13 @@ export function App() {
                 디자인 vs 퍼블리싱 QA
               </Typography>
               <Stack direction="row">
+                {refreshButton}
                 <Tooltip title="실행 전 처음 화면으로">
                   <IconButton size="small" onClick={goToLanding}>
                     <ArrowBackIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                {settingsButton}
               </Stack>
-            </Stack>
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              {refreshButton}
-              {adhocButton}
             </Stack>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
               <Chip size="small" label={`총 ${entries.length}`} />
@@ -483,7 +507,6 @@ export function App() {
         </Box>
       </Box>
       {adhocDialog}
-      {settingsDialog}
     </ThemeProvider>
   );
 }
