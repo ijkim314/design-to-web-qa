@@ -315,7 +315,7 @@ export function App() {
                   </Button>
                 </Stack>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
-                  baseUrl·이미지·경로를 직접 입력해서 한 화면만 실행할 수 있습니다.
+                  baseUrl을 기준으로 여러 화면의 경로·이미지를 직접 입력해서 QA를 실행할 수 있습니다.
                 </Typography>
               </>
             ) : (
