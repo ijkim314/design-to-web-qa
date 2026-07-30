@@ -16,10 +16,12 @@ import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { CompareView } from "./CompareView";
 import { AccessibilityView } from "./AccessibilityView";
 import { AdhocRunDialog } from "./AdhocRunDialog";
+import { InstallGuideDialog } from "./InstallGuideDialog";
 import { apiFetch } from "./apiConfig";
 import type { ScreenReportEntry } from "./types";
 
@@ -84,6 +86,7 @@ export function App() {
   const [showDiff, setShowDiff] = useState(true);
   const [refreshingName, setRefreshingName] = useState<string | null>(null);
   const [adhocOpen, setAdhocOpen] = useState(false);
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(() =>
     loadViewMode(window.__QA_REPORT_DATA__?.length ? "report" : "landing")
   );
@@ -234,12 +237,17 @@ export function App() {
             background: "linear-gradient(180deg, #f5f3ff 0%, #fafafa 260px)",
           }}
         >
-          <Stack direction="row" spacing={1} sx={{ position: "absolute", top: 16, right: 16 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ position: "absolute", top: 16, right: 16 }}>
             {entries.length > 0 && (
               <Button size="small" variant="text" onClick={goToReport}>
                 이전 결과 보기
               </Button>
             )}
+            <Tooltip title="다른 폐쇄망 PC에 옮기는 방법">
+              <IconButton size="small" onClick={() => setInstallGuideOpen(true)}>
+                <MenuBookIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Stack>
           <Box sx={{ maxWidth: 760, width: "100%", textAlign: "center" }}>
             <Chip
@@ -315,6 +323,7 @@ export function App() {
           </Box>
         </Box>
         {adhocDialog}
+        <InstallGuideDialog open={installGuideOpen} onClose={() => setInstallGuideOpen(false)} />
       </ThemeProvider>
     );
   }
