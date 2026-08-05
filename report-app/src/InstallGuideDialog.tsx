@@ -70,10 +70,12 @@ const SECTIONS: Section[] = [
             프로젝트 폴더 전체 (<code>node_modules</code> 폴더 포함 — 지금 이 화면이 들어있는 바로 그 폴더)
           </ListItem>
           <ListItem disablePadding>
-            브라우저 엔진 캐시 폴더 — <code>C:\Users\내 계정\AppData\Local\ms-playwright</code>
+            브라우저 엔진 캐시 폴더 — 탐색기 주소창에 <code>%LOCALAPPDATA%\ms-playwright</code>를 그대로
+            입력해서 이동
             <br />
             <Typography component="span" variant="caption" color="text.secondary">
-              (주의: 프로젝트 폴더 안이 아니라 내 계정 폴더 아래에 따로 있습니다. 빠뜨리면 다른 PC에서
+              (주의: 프로젝트 폴더 안이 아니라 내 계정 폴더 아래에 따로 있습니다. <code>C:\Users\Default</code>는
+              실제 계정이 아니라 윈도우 시스템 템플릿 폴더라 여기엔 없으니 헷갈리지 마세요. 빠뜨리면 다른 PC에서
               화면 촬영이 되지 않습니다.)
             </Typography>
           </ListItem>
@@ -143,8 +145,9 @@ const SECTIONS: Section[] = [
             </Typography>
           </ListItem>
           <ListItem disablePadding>
-            옮겨온 브라우저 엔진 캐시 폴더 내용을 이 PC의{" "}
-            <code>C:\Users\내 계정\AppData\Local\ms-playwright</code> 위치에 그대로 복사합니다.
+            옮겨온 브라우저 엔진 캐시 폴더 내용을, 이 PC 탐색기 주소창에 <code>%LOCALAPPDATA%\ms-playwright</code>를
+            입력해서 나오는 위치에 그대로 복사합니다. (<code>C:\Users\Default</code> 같은 다른 계정
+            폴더가 아니라, 지금 로그인한 내 계정 폴더로 자동으로 이동합니다.)
           </ListItem>
           <ListItem disablePadding>
             <code>qa.config.json</code>을 열어 <code>baseUrl</code>을 이 PC에서 실제로 비교할 화면 주소로
